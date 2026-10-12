@@ -1,0 +1,23 @@
+from pydantic import BaseModel, Field
+
+from app.models import HousekeepingStatus
+
+
+class CheckInRequest(BaseModel):
+    room_id: int = Field(gt=0)
+    # The room version the client last saw (from the dashboard entry).
+    room_version: int = Field(ge=1)
+
+
+class CheckOutRequest(BaseModel):
+    room_version: int = Field(ge=1)
+
+
+class HousekeepingStatusUpdate(BaseModel):
+    status: HousekeepingStatus
+    version: int = Field(ge=1)
+
+
+class ErrorResponse(BaseModel):
+    detail: str
+    code: str
