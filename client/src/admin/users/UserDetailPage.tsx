@@ -8,6 +8,7 @@ import { useAuthenticatedUser } from '../../auth/currentUser'
 import { P } from '../../auth/permissions'
 import { usePermissions } from '../../auth/usePermissions'
 import { FormAlert } from '../../components/AuthShell'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Dialog } from '../../components/Dialog'
 import { GuardedButton } from '../../components/GuardedButton'
 import { buttonPrimary, buttonSecondary, fieldClass, focusRing } from '../../components/styles'
@@ -36,10 +37,6 @@ import {
 import { StatusBadge } from './StatusBadge'
 
 const sectionClass = 'space-y-4 rounded-lg bg-white p-6 shadow-sm'
-const buttonDanger =
-  'inline-flex items-center justify-center gap-2 rounded-md bg-red-700 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60 ' +
-  focusRing
-
 /** /admin/users/:userId */
 export function UserDetailPage() {
   const { userId } = useParams()
@@ -649,49 +646,6 @@ function ActionDialog({
         onDone(null)
       }}
     />
-  )
-}
-
-function ConfirmDialog({
-  title,
-  description,
-  confirmLabel,
-  danger = false,
-  pending,
-  error,
-  onConfirm,
-  onCancel,
-}: {
-  title: string
-  description: React.ReactNode
-  confirmLabel: string
-  danger?: boolean | undefined
-  pending: boolean
-  error: string | null
-  onConfirm: () => void
-  onCancel: () => void
-}) {
-  const cancelRef = useRef<HTMLButtonElement>(null)
-  return (
-    // Cancel gets focus first: Enter on a just-opened dialog should not destroy anything.
-    <Dialog title={title} description={description} onClose={onCancel} initialFocus={cancelRef}>
-      <div className="space-y-4">
-        <FormAlert message={error} />
-        <div className="flex justify-end gap-3">
-          <button ref={cancelRef} type="button" onClick={onCancel} className={buttonSecondary}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={onConfirm}
-            className={danger ? buttonDanger : buttonPrimary}
-          >
-            {pending ? 'Working…' : confirmLabel}
-          </button>
-        </div>
-      </div>
-    </Dialog>
   )
 }
 

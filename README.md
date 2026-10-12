@@ -165,8 +165,8 @@ development).
    summary but have no tile; a "today's arrivals" list with room assignment is needed.
 4. **User management is API-only and incomplete.** `/api/admin/users` creates, edits,
    (de)activates users, assigns roles, revokes sessions and issues invite/reset links, but
-   the admin UI covers users only so far; roles (`/api/admin/roles`) and the audit log
-   (`/api/admin/audit`) have APIs but no screens yet.
+   the admin UI covers users and roles; the audit log (`/api/admin/audit`) has an API but
+   no screen yet.
    There is no real email backend yet (only `console` and `disabled`); without one,
    admins share links in person and forgot-password sends nothing.
 5. **Room attendants have no UI.** They can use the API but lack `dashboard.view`; a

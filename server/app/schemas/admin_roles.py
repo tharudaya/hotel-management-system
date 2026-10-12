@@ -37,6 +37,8 @@ class RoleSummary(BaseModel):
     # For the signed-in user (UI hints only; the server checks every request).
     can_edit: bool
     can_delete: bool
+    # May create a copy (role.manage and every permission it grants).
+    can_duplicate: bool
 
 
 class RoleUser(BaseModel):

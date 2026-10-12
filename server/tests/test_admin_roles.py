@@ -90,6 +90,7 @@ async def test_list_roles_with_counts(
         False,
         False,
     )
+    assert admin["can_duplicate"] is True  # an Admin may copy it, never edit it
     assert admin["permission_count"] == len(ALL_PERMISSION_KEYS)
     assert admin["user_count"] == 1
     receptionist = named[Roles.RECEPTIONIST]
@@ -107,6 +108,7 @@ async def test_list_roles_with_counts(
         "permission_count": 2,
         "can_edit": True,
         "can_delete": True,
+        "can_duplicate": True,
     }
 
 
@@ -121,6 +123,9 @@ async def test_list_hints_follow_the_viewers_own_permissions(
     assert named[Roles.GENERAL_MANAGER]["can_edit"] is True
     assert named["Settings clerk"]["can_edit"] is False  # has a key the GM lacks
     assert named["Settings clerk"]["can_delete"] is False
+    assert named["Settings clerk"]["can_duplicate"] is False
+    assert named[Roles.ADMIN]["can_duplicate"] is False
+    assert named[Roles.RECEPTIONIST]["can_duplicate"] is True
 
 
 async def test_permission_catalog_grouped_with_descriptions(
@@ -467,27 +472,29 @@ async def test_admin_role_cannot_be_changed_at_all(
     assert deleted.json()["code"] == "system_role"
 
 
-async def test_system_roles_cannot_be_renamed_but_can_be_edited(
+async def test_system_roles_keep_name_and_description_but_permissions_can_change(
     client: AsyncClient, login_as: LoginAs, db_session: AsyncSession
 ) -> None:
     await login_as(Roles.ADMIN)
     receptionist = await role_id(db_session, Roles.RECEPTIONIST)
 
     renamed = await client.patch(f"{ROLES}/{receptionist}", json={"name": "Desk clerk"})
-    same_name = await client.patch(
+    described = await client.patch(f"{ROLES}/{receptionist}", json={"description": "Front desk"})
+    # Sending the unchanged name and description along with new permissions is fine.
+    edited = await client.patch(
         f"{ROLES}/{receptionist}",
         json={
             "name": Roles.RECEPTIONIST,
-            "description": "Front desk",
+            "description": "Day-to-day front desk work",
             "permissions": sorted(DEFAULT_ROLES[3].permissions | {P.REPORT_VIEW}),
         },
     )
 
-    assert renamed.status_code == 409
-    assert renamed.json()["code"] == "system_role"
-    assert same_name.status_code == 200, same_name.text
-    assert same_name.json()["description"] == "Front desk"
-    assert P.REPORT_VIEW in same_name.json()["permissions"]
+    assert (renamed.status_code, renamed.json()["code"]) == (409, "system_role")
+    assert (described.status_code, described.json()["code"]) == (409, "system_role")
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["description"] == "Day-to-day front desk work"
+    assert P.REPORT_VIEW in edited.json()["permissions"]
 
 
 async def test_cannot_add_permissions_you_do_not_have(

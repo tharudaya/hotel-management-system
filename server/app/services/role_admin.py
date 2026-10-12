@@ -3,7 +3,7 @@
 All rules live here, not in the routers:
 
 - The Admin system role cannot be changed at all; other system roles cannot be
-  renamed or deleted, but their description and permissions can be edited.
+  renamed, re-described or deleted, but their permissions can be edited.
 - You can only add permissions you hold yourself, and you can only edit or delete
   roles whose permissions are all within yours (no managing a more powerful role).
 - Unknown permission keys are rejected (422, with the list).
@@ -174,6 +174,11 @@ class RoleAdminService:
         if "description" in sent:
             description = data.description or None
             if description != role.description:
+                if role.is_system:
+                    raise DomainError(
+                        f"{role.name!r} is a system role; its description cannot be changed.",
+                        code="system_role",
+                    )
                 before["description"], after["description"] = role.description, description
                 role.description = description
 
@@ -347,6 +352,8 @@ class RoleAdminService:
             permission_count=len(permissions),
             can_edit=can_edit,
             can_delete=can_edit and not role.is_system and user_count == 0,
+            can_duplicate=P.ROLE_MANAGE in self.actor_permissions
+            and permissions <= self.actor_permissions,
         )
 
     async def _detail(self, role: Role) -> RoleDetail:

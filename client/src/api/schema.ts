@@ -899,6 +899,8 @@ export interface components {
             can_edit: boolean;
             /** Can Delete */
             can_delete: boolean;
+            /** Can Duplicate */
+            can_duplicate: boolean;
             /** Permissions */
             permissions: string[];
             /** Users */
@@ -931,6 +933,8 @@ export interface components {
             can_edit: boolean;
             /** Can Delete */
             can_delete: boolean;
+            /** Can Duplicate */
+            can_duplicate: boolean;
         };
         /**
          * RoleUpdate

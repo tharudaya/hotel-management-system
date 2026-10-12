@@ -1,7 +1,10 @@
 import type { RouteObject } from 'react-router'
 
 import { AdminIndex, AdminLayout } from './admin/AdminLayout'
-import { AdminAuditPage, AdminRolesPage } from './admin/AdminPages'
+import { AdminAuditPage } from './admin/AdminPages'
+import { NewRolePage } from './admin/roles/NewRolePage'
+import { RoleDetailPage } from './admin/roles/RoleDetailPage'
+import { RolesListPage } from './admin/roles/RolesListPage'
 import { NewUserPage } from './admin/users/NewUserPage'
 import { UserDetailPage } from './admin/users/UserDetailPage'
 import { UsersListPage } from './admin/users/UsersListPage'
@@ -60,11 +63,19 @@ export const routes: RouteObject[] = [
                   },
                   {
                     path: 'roles',
-                    element: (
-                      <RequirePermission permission={P.ROLE_VIEW}>
-                        <AdminRolesPage />
-                      </RequirePermission>
-                    ),
+                    element: <RequirePermission permission={P.ROLE_VIEW} />,
+                    children: [
+                      { index: true, element: <RolesListPage /> },
+                      {
+                        path: 'new',
+                        element: (
+                          <RequirePermission permission={P.ROLE_MANAGE}>
+                            <NewRolePage />
+                          </RequirePermission>
+                        ),
+                      },
+                      { path: ':roleId', element: <RoleDetailPage /> },
+                    ],
                   },
                   {
                     path: 'audit',

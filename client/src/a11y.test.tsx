@@ -199,6 +199,59 @@ describe('accessibility (axe)', () => {
     await expectNoViolations()
   })
 
+  it('roles list, role editor and the save summary', async () => {
+    const catalog = [
+      {
+        group: 'reservations',
+        permissions: [
+          { key: 'reservation.view', description: 'View reservations' },
+          { key: 'reservation.check_in', description: 'Check guests in' },
+        ],
+      },
+      {
+        group: 'settings',
+        permissions: [{ key: 'settings.manage', description: 'Change settings' }],
+      },
+    ]
+    const custom = {
+      id: 10,
+      name: 'Night auditor',
+      description: null,
+      is_system: false,
+      is_admin: false,
+      user_count: 1,
+      permission_count: 1,
+      can_edit: true,
+      can_delete: false,
+      can_duplicate: true,
+    }
+    mockApi({
+      'GET /api/auth/me': () => [200, MANAGER_USER],
+      'GET /api/hotel': () => [200, HOTEL],
+      'GET /api/admin/roles': () => [200, [custom]],
+      'GET /api/admin/roles/permissions': () => [200, catalog],
+      'GET /api/admin/roles/10': () => [
+        200,
+        {
+          ...custom,
+          permissions: ['reservation.view'],
+          users: [{ id: 7, username: 'owl', full_name: 'Olle Owl', status: 'active' }],
+        },
+      ],
+    })
+    const router = renderApp('/admin/roles')
+    await screen.findByRole('table', { name: 'Roles' })
+    await expectNoViolations()
+
+    await router.navigate('/admin/roles/10')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('checkbox', { name: /^Check guests in/ }))
+    await expectNoViolations()
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByRole('dialog')
+    await expectNoViolations()
+  })
+
   it('not-found page', async () => {
     mockApi({})
     renderApp('/no/such/page')
