@@ -2,11 +2,14 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+PLACEHOLDER_SECRETS: frozenset[str] = frozenset({"", "change-me", "changeme", "secret"})
+MIN_SECRET_LENGTH: int = 32
 
 SERVER_DIR: Path = Path(__file__).resolve().parents[2]
 REPO_ROOT: Path = SERVER_DIR.parent
@@ -26,6 +29,7 @@ class Settings(BaseSettings):
     # IANA zone of the hotel. "Today" (arrivals, departures, nights) is the
     # date in this zone, never the server clock's.
     hotel_timezone: str = "Europe/Stockholm"
+    hotel_name: str = "Hotel"
 
     database_url: str
     # Separate database used by the test suite; never point this at real data.
@@ -69,6 +73,31 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _no_wildcard_origin(cls, value: list[str]) -> list[str]:
+        # Credentials are allowed cross-origin, so "*" would be both invalid and unsafe.
+        if "*" in value:
+            raise ValueError('CORS_ORIGINS must list origins explicitly, not "*"')
+        return value
+
+    @model_validator(mode="after")
+    def _safe_for_production(self) -> Self:
+        """Refuse to start production with development-grade settings."""
+        if self.environment != "production":
+            return self
+        problems = []
+        if not self.session_cookie_secure:
+            problems.append("SESSION_COOKIE_SECURE must be true")
+        secret = self.session_secret.get_secret_value()
+        if secret.lower() in PLACEHOLDER_SECRETS or len(secret) < MIN_SECRET_LENGTH:
+            problems.append(
+                f"SESSION_SECRET must be a random value of at least {MIN_SECRET_LENGTH} characters"
+            )
+        if problems:
+            raise ValueError("Unsafe production settings: " + "; ".join(problems))
+        return self
 
 
 @lru_cache

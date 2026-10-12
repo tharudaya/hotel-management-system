@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from app.api.router import api_router
 from app.api.routes import realtime
 from app.core.config import Settings, get_settings
+from app.core.security_middleware import SecurityMiddleware
 from app.db.session import create_engine, create_session_factory
 from app.realtime.bus import EventBus
 from app.realtime.hub import ConnectionManager
@@ -34,7 +35,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             hub.close_all()
             await engine.dispose()
 
-    app = FastAPI(title="Hotel Management System", lifespan=lifespan)
+    # The interactive docs and schema describe every endpoint; development only.
+    expose_docs = settings.environment != "production"
+    app = FastAPI(
+        title="Hotel Management System",
+        lifespan=lifespan,
+        docs_url="/docs" if expose_docs else None,
+        redoc_url="/redoc" if expose_docs else None,
+        openapi_url="/openapi.json" if expose_docs else None,
+    )
     app.state.settings = settings
     # In-process only; see the scaling note in app/realtime/hub.py.
     bus = EventBus()
@@ -43,6 +52,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.event_bus = bus
     app.state.hub = hub
 
+    app.add_middleware(SecurityMiddleware, allowed_origins=settings.cors_origins)
+    # Added last, so outermost: answers CORS preflights before anything else.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

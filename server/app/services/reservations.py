@@ -1,4 +1,4 @@
-"""Check-in and check-out."""
+"""Reservation details, check-in and check-out."""
 
 from datetime import date
 
@@ -8,14 +8,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     AuditEventType,
+    Guest,
     HousekeepingStatus,
     Reservation,
     ReservationStatus,
     Room,
+    RoomType,
     User,
 )
 from app.realtime.bus import EventBus
 from app.schemas.dashboard import DashboardRoom
+from app.schemas.reservations import GuestOut, ReservationDetail
 from app.services.audit import ClientInfo, record_event
 from app.services.errors import DomainError, InvalidTransitionError, NotFoundError
 from app.services.room_changes import (
@@ -26,9 +29,55 @@ from app.services.room_changes import (
     touch,
 )
 
+# How a reservation's status reads in messages shown to staff.
+STATUS_PHRASES: dict[ReservationStatus, str] = {
+    ReservationStatus.CONFIRMED: "not checked in yet",
+    ReservationStatus.CHECKED_IN: "already checked in",
+    ReservationStatus.CHECKED_OUT: "already checked out",
+    ReservationStatus.CANCELLED: "cancelled",
+    ReservationStatus.NO_SHOW: "marked as a no-show",
+}
+
 READY_FOR_GUEST: frozenset[HousekeepingStatus] = frozenset(
     {HousekeepingStatus.CLEAN, HousekeepingStatus.INSPECTED}
 )
+
+
+async def get_reservation_detail(db: AsyncSession, reservation_id: int) -> ReservationDetail:
+    row = (
+        await db.execute(
+            select(Reservation, Guest, RoomType, Room)
+            .join(Reservation.guest)
+            .join(Reservation.room_type)
+            .outerjoin(Reservation.room)
+            .where(Reservation.id == reservation_id)
+        )
+    ).one_or_none()
+    if row is None:
+        raise NotFoundError(f"Reservation {reservation_id} not found")
+    reservation, guest, room_type, room = row
+    return ReservationDetail(
+        id=reservation.id,
+        confirmation_code=reservation.confirmation_code,
+        status=reservation.status,
+        check_in_date=reservation.check_in_date,
+        check_out_date=reservation.check_out_date,
+        nights=(reservation.check_out_date - reservation.check_in_date).days,
+        adults=reservation.adults,
+        children=reservation.children,
+        is_vip=reservation.is_vip,
+        notes=reservation.notes,
+        room_type=room_type.code,
+        room_type_name=room_type.name,
+        room_id=room.id if room else None,
+        room_number=room.number if room else None,
+        guest=GuestOut(
+            first_name=guest.first_name,
+            last_name=guest.last_name,
+            email=guest.email,
+            phone=guest.phone,
+        ),
+    )
 
 
 async def _load_reservation_for_update(db: AsyncSession, reservation_id: int) -> Reservation:
@@ -86,7 +135,7 @@ async def check_in(
     reservation = await _load_reservation_for_update(db, reservation_id)
     if reservation.status is not ReservationStatus.CONFIRMED:
         raise InvalidTransitionError(
-            f"Cannot check in a reservation that is {reservation.status.value}."
+            f"Cannot check in: the reservation is {STATUS_PHRASES[reservation.status]}."
         )
     if reservation.check_in_date > today:
         raise DomainError(
@@ -162,7 +211,7 @@ async def check_out(
     reservation = await _load_reservation_for_update(db, reservation_id)
     if reservation.status is not ReservationStatus.CHECKED_IN or reservation.room_id is None:
         raise InvalidTransitionError(
-            f"Cannot check out a reservation that is {reservation.status.value}."
+            f"Cannot check out: the reservation is {STATUS_PHRASES[reservation.status]}."
         )
 
     room = await load_room(db, reservation.room_id)

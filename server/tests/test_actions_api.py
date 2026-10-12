@@ -254,9 +254,14 @@ async def test_check_in_unassigned_reservation(
             "inhouse",
             "102",
             "invalid_transition",
-            "Cannot check in a reservation that is checked_in",
+            "Cannot check in: the reservation is already checked in.",
         ),
-        ("cancelled", "102", "invalid_transition", "Cannot check in a reservation that is cancel"),
+        (
+            "cancelled",
+            "102",
+            "invalid_transition",
+            "Cannot check in: the reservation is cancelled.",
+        ),
     ],
 )
 async def test_check_in_rejected(
@@ -418,7 +423,7 @@ async def test_check_out_requires_checked_in(
 
     assert response.status_code == 409
     assert response.json() == {
-        "detail": "Cannot check out a reservation that is confirmed.",
+        "detail": "Cannot check out: the reservation is not checked in yet.",
         "code": "invalid_transition",
     }
     assert published == []

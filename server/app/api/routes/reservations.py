@@ -7,6 +7,7 @@ from app.db.session import SessionDep
 from app.models import User, UserRole
 from app.schemas.actions import CheckInRequest, CheckOutRequest, ErrorResponse
 from app.schemas.dashboard import DashboardRoom
+from app.schemas.reservations import ReservationDetail
 from app.services import reservations as reservation_service
 
 router: APIRouter = APIRouter(prefix="/reservations", tags=["reservations"])
@@ -19,6 +20,13 @@ ERRORS: dict[int | str, dict[str, object]] = {
     status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
     status.HTTP_409_CONFLICT: {"model": ErrorResponse},
 }
+
+
+@router.get("/{reservation_id}", responses={status.HTTP_404_NOT_FOUND: {"model": ErrorResponse}})
+async def get_reservation(
+    reservation_id: ReservationId, db: SessionDep, user: FrontDeskUser
+) -> ReservationDetail:
+    return await reservation_service.get_reservation_detail(db, reservation_id)
 
 
 @router.post("/{reservation_id}/check-in", responses=ERRORS)
