@@ -15,11 +15,18 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api.router import api_router
 from app.api.routes import realtime
 from app.core.config import Settings, get_settings
+from app.core.email import create_email_sender
 from app.core.security_middleware import SecurityMiddleware
 from app.db.session import create_engine, create_session_factory
 from app.realtime.bus import EventBus
 from app.realtime.hub import ConnectionManager
-from app.services.errors import DomainError, NotFoundError, PermissionDeniedError
+from app.services.errors import (
+    DomainError,
+    GoneError,
+    InvalidInputError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from app.services.permissions import sync_permission_catalog
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -62,6 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     hub = ConnectionManager()
     bus.subscribe(hub.handle_event)
     app.state.event_bus = bus
+    app.state.email_sender = create_email_sender(settings)
     app.state.hub = hub
 
     app.add_middleware(SecurityMiddleware, allowed_origins=settings.cors_origins)
@@ -81,12 +89,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(DomainError)
     async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
-        # Not found -> 404, missing permission -> 403, any other business-rule
+        # Not found -> 404, missing permission -> 403, expired/used -> 410, rule-breaking
+        # input -> 422, any other business-rule
         # rejection -> 409 Conflict. "code" lets clients react without parsing text.
         if isinstance(exc, NotFoundError):
             status_code = status.HTTP_404_NOT_FOUND
         elif isinstance(exc, PermissionDeniedError):
             status_code = status.HTTP_403_FORBIDDEN
+        elif isinstance(exc, GoneError):
+            status_code = status.HTTP_410_GONE
+        elif isinstance(exc, InvalidInputError):
+            status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
         else:
             status_code = status.HTTP_409_CONFLICT
         return JSONResponse({"detail": exc.message, "code": exc.code}, status_code=status_code)

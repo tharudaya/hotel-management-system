@@ -23,6 +23,10 @@ class AuditAction(StrEnum):
     USER_DEACTIVATED = "user.deactivated"
     USER_REACTIVATED = "user.reactivated"
     USER_SESSIONS_REVOKED = "user.sessions_revoked"
+    USER_INVITE_SENT = "user.invite_sent"
+    USER_PASSWORD_RESET_SENT = "user.password_reset_sent"
+    USER_ACTIVATED = "user.activated"
+    USER_PASSWORD_RESET = "user.password_reset"
 
 
 class AuditLog(Base):

@@ -9,12 +9,15 @@ from app.api.deps import (
     ClientInfoDep,
     CurrentPermissions,
     CurrentPropertyId,
+    EmailSenderDep,
     EventBusDep,
+    SettingsDep,
     require_permission,
 )
 from app.core.permissions import P
 from app.db.session import SessionDep
 from app.models import User
+from app.schemas.account import LinkIssued
 from app.schemas.actions import ErrorResponse
 from app.schemas.admin_users import (
     RoleAssignment,
@@ -47,6 +50,8 @@ def _service_for(permission: str) -> Callable[..., Awaitable[UserAdminService]]:
         bus: EventBusDep,
         property_id: CurrentPropertyId,
         client: ClientInfoDep,
+        settings: SettingsDep,
+        email_sender: EmailSenderDep,
     ) -> UserAdminService:
         return UserAdminService(
             db=db,
@@ -55,6 +60,8 @@ def _service_for(permission: str) -> Callable[..., Awaitable[UserAdminService]]:
             actor_permissions=permissions,
             property_id=property_id,
             client=client,
+            settings=settings,
+            email_sender=email_sender,
         )
 
     return build
@@ -106,3 +113,18 @@ async def reactivate_user(user_id: UserId, service: Manager) -> UserDetail:
 async def revoke_sessions(user_id: UserId, service: Manager) -> SessionsRevoked:
     """Log the user out everywhere (all sessions and WebSockets)."""
     return await service.revoke_sessions(user_id)
+
+
+@router.post("/{user_id}/invite", responses=ERRORS)
+async def send_invite(user_id: UserId, service: Manager) -> LinkIssued:
+    """Email an invite link (72 h), or return it once if the user has no email.
+
+    Re-sending expires the previous link.
+    """
+    return await service.send_invite(user_id)
+
+
+@router.post("/{user_id}/reset-password", responses=ERRORS)
+async def send_password_reset(user_id: UserId, service: Manager) -> LinkIssued:
+    """Email a password reset link (1 h), or return it once if the user has no email."""
+    return await service.send_password_reset(user_id)

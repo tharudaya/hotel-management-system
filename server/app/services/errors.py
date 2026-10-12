@@ -37,3 +37,15 @@ class PermissionDeniedError(DomainError):
     """The user lacks a permission that only the service can check (depends on data)."""
 
     default_code = "forbidden"
+
+
+class GoneError(DomainError):
+    """The thing existed but can no longer be used (expired or used link): HTTP 410."""
+
+    default_code = "gone"
+
+
+class InvalidInputError(DomainError):
+    """Well-formed input that breaks a business rule (e.g. password policy): HTTP 422."""
+
+    default_code = "invalid_input"

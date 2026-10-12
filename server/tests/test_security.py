@@ -38,6 +38,13 @@ ACCESS: dict[tuple[str, str], str] = {
     ("POST", "/api/admin/users/{user_id}/deactivate"): P.USER_MANAGE,
     ("POST", "/api/admin/users/{user_id}/reactivate"): P.USER_MANAGE,
     ("POST", "/api/admin/users/{user_id}/revoke-sessions"): P.USER_MANAGE,
+    ("POST", "/api/admin/users/{user_id}/invite"): P.USER_MANAGE,
+    ("POST", "/api/admin/users/{user_id}/reset-password"): P.USER_MANAGE,
+    ("GET", "/api/auth/activate/{token}"): PUBLIC,
+    ("POST", "/api/auth/activate/{token}"): PUBLIC,
+    ("GET", "/api/auth/reset-password/{token}"): PUBLIC,
+    ("POST", "/api/auth/reset-password/{token}"): PUBLIC,
+    ("POST", "/api/auth/forgot-password"): PUBLIC,
 }
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {r.name: r.permissions for r in DEFAULT_ROLES}
 
@@ -60,6 +67,7 @@ def concrete(path: str) -> str:
         path.replace("{reservation_id}", "1")
         .replace("{room_id}", "1")
         .replace("{user_id}", "999999")
+        .replace("{token}", "x" * 43)
     )
 
 
@@ -159,6 +167,7 @@ def production_settings(**overrides: object) -> Settings:
         "session_secret": STRONG_SECRET,
         "session_cookie_secure": True,
         "cors_origins": "https://hotel.example",
+        "email_backend": "disabled",
         **overrides,
     }
     return Settings.model_validate(values)
@@ -174,6 +183,7 @@ def test_production_settings_accept_safe_values() -> None:
         ({"session_cookie_secure": False}, "SESSION_COOKIE_SECURE must be true"),
         ({"session_secret": "change-me"}, "SESSION_SECRET must be a random value"),
         ({"session_secret": "short"}, "SESSION_SECRET must be a random value"),
+        ({"email_backend": "console"}, "EMAIL_BACKEND must be a real email service"),
     ],
 )
 def test_production_refuses_unsafe_settings(overrides: dict[str, Any], problem: str) -> None:

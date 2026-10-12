@@ -21,6 +21,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import SERVER_DIR, Settings, get_settings
+from app.core.email import EmailDeliveryError, EmailMessage
 from app.core.security import hash_password
 from app.db.session import create_engine, create_session_factory, get_session
 from app.main import create_app
@@ -102,7 +103,27 @@ def app(test_settings: Settings, db_session: AsyncSession) -> FastAPI:
         yield db_session
 
     app.dependency_overrides[get_session] = use_test_session
+    app.state.email_sender = RecordingEmailSender()
     return app
+
+
+class RecordingEmailSender:
+    """Keeps sent emails for assertions instead of printing them."""
+
+    def __init__(self) -> None:
+        self.sent: list[EmailMessage] = []
+        self.fail = False
+
+    async def send(self, message: EmailMessage) -> None:
+        if self.fail:
+            raise EmailDeliveryError("test: delivery disabled")
+        self.sent.append(message)
+
+
+@pytest.fixture
+def emails(app: FastAPI) -> RecordingEmailSender:
+    sender: RecordingEmailSender = app.state.email_sender
+    return sender
 
 
 @pytest.fixture

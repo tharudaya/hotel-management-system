@@ -38,6 +38,7 @@ class AuditEventType(StrEnum):
     LOGIN_FAILED = "auth.login_failed"
     LOGIN_BLOCKED = "auth.login_blocked"
     LOGOUT = "auth.logout"
+    PASSWORD_RESET_REQUESTED = "auth.password_reset_requested"
 
 
 class AuditEvent(Base):

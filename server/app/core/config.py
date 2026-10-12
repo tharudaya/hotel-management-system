@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     # Messages queued for one slow client before it is disconnected.
     ws_max_pending_messages: int = 100
 
+    # Where the browser app lives; activation and reset links point here.
+    app_base_url: str = "http://localhost:5173"
+    # Outgoing email: "console" (development: prints to the log) or "disabled" (sends
+    # nothing; admins share links by hand). A real email service is a later addition.
+    email_backend: Literal["console", "disabled"] = "console"
+    email_from: str = "Hotel <no-reply@hotel.local>"
+
     # Comma-separated in the environment, e.g. "http://localhost:5173,http://127.0.0.1:5173".
     cors_origins: Annotated[list[str], NoDecode] = []
 
@@ -94,6 +101,10 @@ class Settings(BaseSettings):
         if secret.lower() in PLACEHOLDER_SECRETS or len(secret) < MIN_SECRET_LENGTH:
             problems.append(
                 f"SESSION_SECRET must be a random value of at least {MIN_SECRET_LENGTH} characters"
+            )
+        if self.email_backend == "console":
+            problems.append(
+                "EMAIL_BACKEND must be a real email service (console would log activation links)"
             )
         if problems:
             raise ValueError("Unsafe production settings: " + "; ".join(problems))

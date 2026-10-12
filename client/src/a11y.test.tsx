@@ -60,6 +60,61 @@ describe('accessibility (axe)', () => {
     await expectNoViolations()
   })
 
+  it('activation page: form, validation errors and success', async () => {
+    const token = 'x'.repeat(43)
+    mockApi({
+      [`GET /api/auth/activate/${token}`]: () => [
+        200,
+        { username: 'newbie', full_name: 'New Bie' },
+      ],
+      [`POST /api/auth/activate/${token}`]: () => [200, { detail: 'ok' }],
+    })
+    renderApp(`/activate/${token}`)
+    await screen.findByRole('heading', { name: 'Welcome, New Bie' })
+    await expectNoViolations()
+
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('New password'), 'short')
+    await user.click(screen.getByRole('button', { name: 'Activate account' }))
+    await expectNoViolations()
+
+    await user.clear(screen.getByLabelText('New password'))
+    await user.type(screen.getByLabelText('New password'), 'Tricky-Ferret-Lamp')
+    await user.type(screen.getByLabelText('Confirm new password'), 'Tricky-Ferret-Lamp')
+    await user.click(screen.getByRole('button', { name: 'Activate account' }))
+    await screen.findByRole('heading', { name: 'Your account is ready' })
+    await expectNoViolations()
+  })
+
+  it('expired reset link', async () => {
+    const token = 'x'.repeat(43)
+    mockApi({
+      [`GET /api/auth/reset-password/${token}`]: () => [
+        410,
+        { detail: 'x', code: 'token_expired' },
+      ],
+    })
+    renderApp(`/reset-password/${token}`)
+    await screen.findByText('This link has expired.')
+    await expectNoViolations()
+  })
+
+  it('forgot password page, invalid input and confirmation', async () => {
+    mockApi({ 'POST /api/auth/forgot-password': () => [202, { detail: 'Sent if it exists.' }] })
+    renderApp('/forgot-password')
+    await expectNoViolations()
+
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Email address'), 'nope')
+    await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+    await expectNoViolations()
+
+    await user.type(screen.getByLabelText('Email address'), '@hotel.example')
+    await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+    await screen.findByRole('heading', { name: 'Check your email' })
+    await expectNoViolations()
+  })
+
   it('not-found page', async () => {
     mockApi({})
     renderApp('/no/such/page')

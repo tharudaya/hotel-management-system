@@ -140,12 +140,18 @@ the WebSocket protocol at the top of `server/app/realtime/hub.py`, and `CLAUDE.m
 - Input is validated by Pydantic schemas (lengths, ranges, enums); database constraints
   back up the business rules (no double-booking, one guest party per room, valid dates).
 - Secrets live only in `.env` (git-ignored); `.env.example` lists every setting.
+- Invite and password-reset links are single use, expire (72 h / 1 h), and only a hash
+  of the token is stored. Forgot-password gives the same answer whether or not the
+  account exists. New passwords need 12+ characters and are checked against a list of
+  common passwords. Production refuses the console email backend.
 
 ## Configuration
 
 All settings are environment variables, documented in [.env.example](.env.example). The
 most important: `DATABASE_URL`, `SESSION_SECRET`, `SESSION_COOKIE_SECURE`, `CORS_ORIGINS`,
-`HOTEL_TIMEZONE`, `HOTEL_NAME`, `ENVIRONMENT`.
+`HOTEL_TIMEZONE`, `HOTEL_NAME`, `ENVIRONMENT`, `APP_BASE_URL` (used in emailed links) and
+`EMAIL_BACKEND` (`console` prints emails, including links, to the server log in
+development).
 
 ## Known limitations and next steps
 
@@ -158,9 +164,10 @@ most important: `DATABASE_URL`, `SESSION_SECRET`, `SESSION_COOKIE_SECURE`, `CORS
 3. **Unassigned arrivals can't be checked in from the dashboard.** They are counted in the
    summary but have no tile; a "today's arrivals" list with room assignment is needed.
 4. **User management is API-only and incomplete.** `/api/admin/users` creates, edits,
-   (de)activates users, assigns roles and revokes sessions, but there is no UI yet, new
-   users stay "invited" until a set-password/invite flow exists, roles cannot be created
-   or edited through the API, and there is no password policy.
+   (de)activates users, assigns roles, revokes sessions and issues invite/reset links, but
+   there is no admin UI yet and roles cannot be created or edited through the API.
+   There is no real email backend yet (only `console` and `disabled`); without one,
+   admins share links in person and forgot-password sends nothing.
 5. **Room attendants have no UI.** They can use the API but lack `dashboard.view`; a
    housekeeping view is a natural next feature.
 6. **Expired sessions and audit rows are never purged.** Add a periodic cleanup job and a

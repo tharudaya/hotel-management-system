@@ -29,9 +29,20 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import QueryableAttribute
 
+from app.core.config import Settings
+from app.core.email import EmailSender
 from app.core.permissions import ADMIN_ROLE_NAME, ALL_PERMISSION_KEYS
-from app.models import AuditAction, Property, Role, RolePermission, User, UserPropertyRole
+from app.models import (
+    AuditAction,
+    Property,
+    Role,
+    RolePermission,
+    TokenPurpose,
+    User,
+    UserPropertyRole,
+)
 from app.realtime.bus import EventBus
+from app.schemas.account import LinkIssued
 from app.schemas.admin_users import (
     PropertyRole,
     SessionsRevoked,
@@ -44,6 +55,13 @@ from app.schemas.admin_users import (
     UserUpdate,
 )
 from app.schemas.auth import PropertyRef, RoleRef
+from app.services.account_tokens import (
+    compose_email,
+    deliver,
+    issue_token,
+    link_for,
+    mask_email,
+)
 from app.services.audit import ClientInfo, record_change
 from app.services.auth import publish_sessions_ended, revoke_user_sessions
 from app.services.errors import DomainError, NotFoundError, PermissionDeniedError
@@ -110,6 +128,8 @@ class UserAdminService:
     actor_permissions: frozenset[str]
     property_id: int
     client: ClientInfo
+    settings: Settings
+    email_sender: EmailSender
 
     # --- reads -----------------------------------------------------------------------
 
@@ -351,6 +371,73 @@ class UserAdminService:
         await self.db.commit()
         await publish_sessions_ended(self.bus, target.id, revoked)
         return SessionsRevoked(revoked_sessions=len(revoked))
+
+    async def send_invite(self, user_id: int) -> LinkIssued:
+        """Issue (or re-issue) an invite link for a user who has no password yet."""
+        target = await self._load(user_id)
+        await self._ensure_can_manage(target)
+        self._ensure_reachable(target)
+        if target.password_hash is not None:
+            raise DomainError(
+                f"{target.username} has already activated their account; "
+                "send a password reset instead.",
+                code="already_active",
+            )
+        return await self._issue_link(target, TokenPurpose.INVITE, AuditAction.USER_INVITE_SENT)
+
+    async def send_password_reset(self, user_id: int) -> LinkIssued:
+        """Issue a password reset link for a user who has activated their account."""
+        target = await self._load(user_id)
+        await self._ensure_can_manage(target)
+        self._ensure_reachable(target)
+        if target.password_hash is None:
+            raise DomainError(
+                f"{target.username} has not activated their account yet; send an invite instead.",
+                code="not_activated",
+            )
+        return await self._issue_link(
+            target, TokenPurpose.PASSWORD_RESET, AuditAction.USER_PASSWORD_RESET_SENT
+        )
+
+    async def _issue_link(
+        self, target: User, purpose: TokenPurpose, action: AuditAction
+    ) -> LinkIssued:
+        token, expires_at = await issue_token(
+            self.db, self.settings, user=target, purpose=purpose, created_by=self.actor
+        )
+        channel = "email" if target.email else "link"
+        # The token itself never goes into the audit log.
+        self._audit(
+            action,
+            target,
+            before=None,
+            after={"expires_at": expires_at.isoformat(), "channel": channel},
+        )
+        await self.db.commit()
+
+        link = link_for(self.settings, purpose, token)
+        if target.email and await deliver(
+            self.email_sender, compose_email(self.settings, purpose, target, link)
+        ):
+            return LinkIssued(
+                delivery="email", sent_to=mask_email(target.email), link=None, expires_at=expires_at
+            )
+        # No address, or sending failed: show the link once so the admin can pass it on.
+        return LinkIssued(delivery="link", sent_to=None, link=link, expires_at=expires_at)
+
+    @staticmethod
+    def _ensure_reachable(target: User) -> None:
+        now = datetime.now(UTC)
+        if target.deactivated_at is not None:
+            raise DomainError(
+                f"{target.username} is deactivated; reactivate them first.",
+                code="invalid_transition",
+            )
+        if target.expires_at is not None and target.expires_at <= now:
+            raise DomainError(
+                f"{target.username}'s access has expired; change the expiry date first.",
+                code="invalid_transition",
+            )
 
     # --- guards ----------------------------------------------------------------------
 

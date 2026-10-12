@@ -8,6 +8,7 @@ from fastapi import Depends, HTTPException, Request, status
 
 from app.core.clock import hotel_today
 from app.core.config import Settings
+from app.core.email import EmailSender
 from app.core.permissions import ALL_PERMISSION_KEYS
 from app.db.session import SessionDep
 from app.models import User
@@ -31,6 +32,14 @@ def get_event_bus(request: Request) -> EventBus:
 
 
 EventBusDep = Annotated[EventBus, Depends(get_event_bus)]
+
+
+def get_email_sender(request: Request) -> EmailSender:
+    sender: EmailSender = request.app.state.email_sender
+    return sender
+
+
+EmailSenderDep = Annotated[EmailSender, Depends(get_email_sender)]
 
 
 def get_client_info(request: Request) -> ClientInfo:
