@@ -1,13 +1,66 @@
-/** Plain-language descriptions of audit log entries (see server models/audit.AuditAction). */
-import type { AuditEntry } from '../api/types'
+/**
+ * Plain-language wording for audit entries (server: models/audit.AuditAction and
+ * models/auth.AuditEventType). ACTIONS is keyed by the generated action union, so a
+ * new action on the server fails the type check until it gets a label here.
+ */
+import type { AuditActionName, AuditEntry } from '../api/types'
 
-const FIELD_LABELS: Record<string, string> = {
-  full_name: 'name',
-  email: 'email',
-  phone: 'phone',
-  job_title: 'job title',
-  employee_id: 'employee ID',
-  expires_at: 'access expiry',
+export type ActionGroup = 'Sign-in' | 'Users' | 'Roles' | 'Front desk'
+
+export const ACTIONS: Record<AuditActionName, { label: string; group: ActionGroup }> = {
+  'auth.login_succeeded': { label: 'Signed in', group: 'Sign-in' },
+  'auth.login_failed': { label: 'Sign-in failed', group: 'Sign-in' },
+  'auth.login_blocked': { label: 'Sign-in blocked (too many attempts)', group: 'Sign-in' },
+  'auth.logout': { label: 'Signed out', group: 'Sign-in' },
+  'auth.password_reset_requested': { label: 'Asked for a password reset', group: 'Sign-in' },
+  'user.created': { label: 'User created', group: 'Users' },
+  'user.updated': { label: 'Profile changed', group: 'Users' },
+  'user.role_changed': { label: 'Role changed', group: 'Users' },
+  'user.deactivated': { label: 'User deactivated', group: 'Users' },
+  'user.reactivated': { label: 'User reactivated', group: 'Users' },
+  'user.sessions_revoked': { label: 'Signed out everywhere', group: 'Users' },
+  'user.invite_sent': { label: 'Invite sent', group: 'Users' },
+  'user.password_reset_sent': { label: 'Password reset sent', group: 'Users' },
+  'user.activated': { label: 'Account activated', group: 'Users' },
+  'user.password_reset': { label: 'Password reset completed', group: 'Users' },
+  'role.created': { label: 'Role created', group: 'Roles' },
+  'role.updated': { label: 'Role changed', group: 'Roles' },
+  'role.deleted': { label: 'Role deleted', group: 'Roles' },
+  'reservation.checked_in': { label: 'Checked in', group: 'Front desk' },
+  'reservation.checked_out': { label: 'Checked out', group: 'Front desk' },
+  'room.housekeeping_status_changed': { label: 'Housekeeping status changed', group: 'Front desk' },
+}
+
+export const ACTION_NAMES = Object.keys(ACTIONS) as AuditActionName[]
+
+export function isActionName(value: string): value is AuditActionName {
+  return value in ACTIONS
+}
+
+export function actionLabel(action: string): string {
+  return isActionName(action) ? ACTIONS[action].label : action
+}
+
+export const FIELD_LABELS: Record<string, string> = {
+  username: 'Username',
+  full_name: 'Name',
+  email: 'Email',
+  phone: 'Phone',
+  job_title: 'Job title',
+  employee_id: 'Employee ID',
+  expires_at: 'Access expires',
+  role_id: 'Role ID',
+  role_name: 'Role',
+  status: 'Status',
+  deactivated_at: 'Deactivated',
+  sessions_revoked: 'Sessions ended',
+  channel: 'Delivered by',
+  name: 'Name',
+  description: 'Description',
+  permissions: 'Permissions',
+  copied_from: 'Copied from',
+  reason: 'Reason',
+  outcome: 'Outcome',
 }
 
 function text(value: unknown): string | null {
@@ -18,6 +71,7 @@ function count(value: unknown): number {
   return typeof value === 'number' ? value : 0
 }
 
+/** One sentence for an entry (used in a user's "Recent changes"). */
 export function describeAuditEntry(entry: AuditEntry): string {
   const before = entry.before ?? {}
   const after = entry.after ?? {}
@@ -27,7 +81,7 @@ export function describeAuditEntry(entry: AuditEntry): string {
       return role ? `Created the account with the role ${role}` : 'Created the account'
     }
     case 'user.updated': {
-      const fields = Object.keys(after).map((field) => FIELD_LABELS[field] ?? field)
+      const fields = Object.keys(after).map((f) => (FIELD_LABELS[f] ?? f).toLowerCase())
       return fields.length > 0 ? `Changed ${fields.join(', ')}` : 'Changed the profile'
     }
     case 'user.role_changed': {
@@ -35,10 +89,6 @@ export function describeAuditEntry(entry: AuditEntry): string {
       const to = text(after.role_name) ?? 'another role'
       return from ? `Changed the role from ${from} to ${to}` : `Gave the role ${to}`
     }
-    case 'user.deactivated':
-      return 'Deactivated the account'
-    case 'user.reactivated':
-      return 'Reactivated the account'
     case 'user.sessions_revoked': {
       const n = count(after.sessions_revoked)
       return `Signed the user out everywhere (${n} ${n === 1 ? 'session' : 'sessions'})`
@@ -49,11 +99,11 @@ export function describeAuditEntry(entry: AuditEntry): string {
       return after.channel === 'email'
         ? 'Sent a password reset email'
         : 'Created a password reset link'
-    case 'user.activated':
-      return 'Activated the account'
-    case 'user.password_reset':
-      return 'Set a new password with a reset link'
+    case 'auth.login_failed': {
+      const reason = text(entry.details?.reason)
+      return reason ? `Sign-in failed (${reason.replaceAll('_', ' ')})` : 'Sign-in failed'
+    }
     default:
-      return entry.action
+      return actionLabel(entry.action)
   }
 }

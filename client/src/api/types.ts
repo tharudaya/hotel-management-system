@@ -37,3 +37,5 @@ export type AuditEntry = Schemas['AuditEntry']
 export type AuditPage = Schemas['AuditPage']
 export type UserRestrictions = Schemas['UserRestrictions']
 export type UserAction = keyof UserRestrictions
+export type AuditActionName = Schemas['AuditAction'] | Schemas['AuditEventType']
+export type AuditActor = Schemas['AuditActor']

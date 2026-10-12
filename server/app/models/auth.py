@@ -42,7 +42,8 @@ class AuditEventType(StrEnum):
 
 
 class AuditEvent(Base):
-    """Append-only authentication log (logins, logouts, throttling).
+    """Append-only authentication log (logins, logouts, throttling). A database
+    trigger rejects UPDATE and DELETE (migration ff3cb811073d).
 
     Data changes (check-ins, housekeeping, user administration) go to audit_log.
     """
@@ -52,11 +53,15 @@ class AuditEvent(Base):
         # Login rate limiting counts recent failures per username and per IP.
         Index("ix_audit_events_type_username_occurred_at", "event_type", "username", "occurred_at"),
         Index("ix_audit_events_type_ip_occurred_at", "event_type", "ip_address", "occurred_at"),
+        # Newest-first reading in the audit viewer.
+        Index("ix_audit_events_occurred_at", "occurred_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    # clock_timestamp(), not now(): the moment of the insert, so events in one
+    # transaction keep their order.
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True), server_default=func.clock_timestamp()
     )
     event_type: Mapped[str] = mapped_column(String(50))
     # Kept when the user is deleted, so the trail survives.

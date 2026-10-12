@@ -179,9 +179,9 @@ describe('accessibility (axe)', () => {
           restrictions: { reset_password: 'alice has not activated their account yet.' },
         },
       ],
-      'GET /api/admin/audit?target_type=user&target_id=7&page_size=10': () => [
+      'GET /api/admin/audit?target_type=user&target_id=7&limit=10': () => [
         200,
-        { items: [], total: 0, page: 1, page_size: 10 },
+        { items: [], next_cursor: null },
       ],
     })
     const router = renderApp('/admin/users')
@@ -249,6 +249,40 @@ describe('accessibility (axe)', () => {
     await expectNoViolations()
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
     await screen.findByRole('dialog')
+    await expectNoViolations()
+  })
+
+  it('audit log with an expanded row', async () => {
+    mockApi({
+      'GET /api/auth/me': () => [200, ADMIN_USER],
+      'GET /api/hotel': () => [200, HOTEL],
+      'GET /api/admin/audit?limit=50': () => [
+        200,
+        {
+          items: [
+            {
+              id: 'change-1',
+              source: 'change',
+              occurred_at: '2026-10-12T08:30:00Z',
+              action: 'user.updated',
+              actor: { id: 2, username: 'manager', full_name: 'Morgan' },
+              target_type: 'user',
+              target_id: '7',
+              target_label: 'Alice Andersson',
+              before: { job_title: null },
+              after: { job_title: 'Night audit' },
+              details: null,
+              ip: '10.0.0.5',
+            },
+          ],
+          next_cursor: 'abc',
+        },
+      ],
+    })
+    renderApp('/admin/audit')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /^Details: Profile changed/ }))
+    await screen.findByRole('table', { name: 'Changed fields' })
     await expectNoViolations()
   })
 

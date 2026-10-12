@@ -673,12 +673,12 @@ function AuditSection({ userId }: { userId: number }) {
         <ol className="divide-y divide-slate-100 text-sm">
           {audit.data.items.map((entry) => (
             <li key={entry.id} className="flex flex-wrap gap-x-4 gap-y-1 py-2">
-              <time dateTime={entry.created_at} className="w-40 shrink-0 text-slate-600">
-                {formatDateTime(entry.created_at, property.time_zone)}
+              <time dateTime={entry.occurred_at} className="w-40 shrink-0 text-slate-600">
+                {formatDateTime(entry.occurred_at, property.time_zone)}
               </time>
               <span className="text-slate-900">{describeAuditEntry(entry)}</span>
               <span className="text-slate-600">
-                by {entry.actor ? entry.actor.full_name : 'the system'}
+                by {entry.actor ? (entry.actor.full_name ?? entry.actor.username) : 'the system'}
               </span>
             </li>
           ))}

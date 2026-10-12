@@ -538,7 +538,11 @@ export interface paths {
         };
         /**
          * List Audit
-         * @description Data changes at this property, newest first; filter by target to see one record's history.
+         * @description Data changes and sign-in events, newest first, with cursor pagination.
+         *
+         *     Filter by actor username, action, target (type and id) and a date range (days in
+         *     the property's time zone). Audit rows cannot be changed or deleted (database
+         *     trigger); there are deliberately no write endpoints.
          */
         get: operations["list_audit_api_admin_audit_get"];
         put?: never;
@@ -562,31 +566,44 @@ export interface components {
             /** Assignable */
             assignable: boolean;
         };
+        /**
+         * AuditAction
+         * @description What changed. Stored as plain strings, so new actions need no migration.
+         * @enum {string}
+         */
+        AuditAction: "reservation.checked_in" | "reservation.checked_out" | "room.housekeeping_status_changed" | "user.created" | "user.updated" | "user.role_changed" | "user.deactivated" | "user.reactivated" | "user.sessions_revoked" | "user.invite_sent" | "user.password_reset_sent" | "user.activated" | "user.password_reset" | "role.created" | "role.updated" | "role.deleted";
         /** AuditActor */
         AuditActor: {
             /** Id */
-            id: number;
+            id: number | null;
             /** Username */
             username: string;
             /** Full Name */
-            full_name: string;
+            full_name: string | null;
         };
         /** AuditEntry */
         AuditEntry: {
             /** Id */
-            id: number;
+            id: string;
             /**
-             * Created At
+             * Source
+             * @enum {string}
+             */
+            source: "change" | "auth";
+            /**
+             * Occurred At
              * Format: date-time
              */
-            created_at: string;
+            occurred_at: string;
             /** Action */
             action: string;
             actor: components["schemas"]["AuditActor"] | null;
             /** Target Type */
-            target_type: string;
+            target_type: ("user" | "role" | "reservation" | "room") | null;
             /** Target Id */
-            target_id: string;
+            target_id: string | null;
+            /** Target Label */
+            target_label: string | null;
             /** Before */
             before: {
                 [key: string]: unknown;
@@ -595,20 +612,27 @@ export interface components {
             after: {
                 [key: string]: unknown;
             } | null;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            } | null;
+            /** Ip */
+            ip: string | null;
         };
         /**
+         * AuditEventType
+         * @enum {string}
+         */
+        AuditEventType: "auth.login_succeeded" | "auth.login_failed" | "auth.login_blocked" | "auth.logout" | "auth.password_reset_requested";
+        /**
          * AuditPage
-         * @description Newest first.
+         * @description Newest first. Pass next_cursor back as `cursor` for older entries; None = end.
          */
         AuditPage: {
             /** Items */
             items: components["schemas"]["AuditEntry"][];
-            /** Total */
-            total: number;
-            /** Page */
-            page: number;
-            /** Page Size */
-            page_size: number;
+            /** Next Cursor */
+            next_cursor: string | null;
         };
         /** CatalogPermission */
         CatalogPermission: {
@@ -2637,11 +2661,16 @@ export interface operations {
     list_audit_api_admin_audit_get: {
         parameters: {
             query?: {
-                /** @description What changed, e.g. "user" or "role" */
-                target_type?: string | null;
+                /** @description Username of who did it (for logins: who signed in) */
+                actor?: string | null;
+                action?: components["schemas"]["AuditAction"] | components["schemas"]["AuditEventType"] | null;
+                target_type?: ("user" | "role" | "reservation" | "room") | null;
                 target_id?: string | null;
-                page?: number;
-                page_size?: number;
+                date_from?: string | null;
+                date_to?: string | null;
+                /** @description next_cursor from the previous page */
+                cursor?: string | null;
+                limit?: number;
             };
             header?: never;
             path?: never;

@@ -33,7 +33,8 @@ class AuditAction(StrEnum):
 
 
 class AuditLog(Base):
-    """One row per change, written in the same transaction as the change.
+    """One row per change, written in the same transaction as the change. Append-only:
+    a database trigger rejects UPDATE and DELETE (migration ff3cb811073d).
 
     Authentication events (logins, logouts, throttling) live in audit_events instead.
     """
@@ -60,6 +61,8 @@ class AuditLog(Base):
     after: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     ip: Mapped[str | None] = mapped_column(String(45))
     user_agent: Mapped[str | None] = mapped_column(String(500))
+    # clock_timestamp(), not now(): the moment of the insert, so changes in one
+    # transaction (and audit_events rows) keep their real order.
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), index=True
+        DateTime(timezone=True), server_default=func.clock_timestamp(), index=True
     )

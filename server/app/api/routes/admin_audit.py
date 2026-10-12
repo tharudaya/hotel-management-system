@@ -17,5 +17,10 @@ router: APIRouter = APIRouter(prefix="/admin/audit", tags=["admin: audit"])
 async def list_audit(
     db: SessionDep, property_id: CurrentPropertyId, query: Annotated[AuditQuery, Query()]
 ) -> AuditPage:
-    """Data changes at this property, newest first; filter by target to see one record's history."""
+    """Data changes and sign-in events, newest first, with cursor pagination.
+
+    Filter by actor username, action, target (type and id) and a date range (days in
+    the property's time zone). Audit rows cannot be changed or deleted (database
+    trigger); there are deliberately no write endpoints.
+    """
     return await list_audit_entries(db, property_id, query)

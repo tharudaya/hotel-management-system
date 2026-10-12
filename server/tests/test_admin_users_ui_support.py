@@ -1,5 +1,5 @@
-"""What the user admin screens rely on: role on create, assignable roles, the
-per-user restrictions, and the audit log endpoint."""
+"""What the user admin screens rely on: role on create, assignable roles and the
+per-user restrictions. (The audit log endpoint is tested in test_audit_log.py.)"""
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import ALL_PERMISSION_KEYS, DEFAULT_ROLES
-from app.models import AuditAction, AuditLog, Property, Role, RolePermission, User
+from app.models import AuditAction, AuditLog, Role, RolePermission, User
 from app.services.permissions import get_default_property_id
 from tests.conftest import LoginAs, MakeUser, Roles, role_id
 
@@ -203,82 +203,3 @@ async def test_last_admin_restriction(
     reason = "boss is the last active Admin. Give another user the Admin role first."
     assert (restrictions["change_role"], restrictions["deactivate"]) == (reason, reason)
     assert "edit" not in restrictions and "revoke_sessions" not in restrictions
-
-
-# --- audit log -----------------------------------------------------------------------------
-
-
-async def test_audit_entries_for_one_user_newest_first(
-    client: AsyncClient, login_as: LoginAs, make_user: MakeUser, db_session: AsyncSession
-) -> None:
-    admin = await login_as(Roles.ADMIN)
-    alice = await make_user("alice")
-    bob = await make_user("bob")
-    await client.patch(f"{USERS}/{alice.id}", json={"job_title": "Night audit"})
-    await client.post(f"{USERS}/{alice.id}/revoke-sessions")
-    await client.patch(f"{USERS}/{bob.id}", json={"job_title": "Porter"})
-
-    response = await client.get(
-        "/api/admin/audit", params={"target_type": "user", "target_id": str(alice.id)}
-    )
-
-    assert response.status_code == 200, response.text
-    data = response.json()
-    assert data["total"] == 2
-    assert [e["action"] for e in data["items"]] == [
-        AuditAction.USER_SESSIONS_REVOKED,
-        AuditAction.USER_UPDATED,
-    ]
-    updated = data["items"][1]
-    assert updated["actor"] == {"id": admin.id, "username": "admin", "full_name": admin.full_name}
-    assert (updated["before"], updated["after"]) == (
-        {"job_title": None},
-        {"job_title": "Night audit"},
-    )
-
-
-async def test_audit_paging_and_other_properties(
-    client: AsyncClient, login_as: LoginAs, make_user: MakeUser, db_session: AsyncSession
-) -> None:
-    await login_as(Roles.ADMIN)
-    alice = await make_user("alice")
-    for title in ("a", "b", "c"):
-        await client.patch(f"{USERS}/{alice.id}", json={"job_title": title})
-    other = Property(name="Other Hotel", time_zone="UTC")
-    db_session.add(other)
-    await db_session.flush()
-    db_session.add(
-        AuditLog(
-            property_id=other.id,
-            action="user.updated",
-            target_type="user",
-            target_id=str(alice.id),
-            after={"job_title": "elsewhere"},
-        )
-    )
-    await db_session.flush()
-
-    page2 = (
-        await client.get(
-            "/api/admin/audit",
-            params={"target_type": "user", "target_id": alice.id, "page": 2, "page_size": 2},
-        )
-    ).json()
-
-    assert (page2["total"], page2["page"], page2["page_size"]) == (3, 2, 2)
-    assert [e["after"] for e in page2["items"]] == [{"job_title": "a"}]
-
-
-@pytest.mark.parametrize("params", [{"page": 0}, {"page_size": 101}, {"x": 1}])
-async def test_audit_validation(
-    client: AsyncClient, login_as: LoginAs, params: dict[str, int]
-) -> None:
-    await login_as(Roles.ADMIN)
-
-    assert (await client.get("/api/admin/audit", params=params)).status_code == 422
-
-
-async def test_audit_needs_audit_view(client: AsyncClient, login_as: LoginAs) -> None:
-    await login_as(Roles.FRONT_OFFICE_MANAGER)
-
-    assert (await client.get("/api/admin/audit")).status_code == 403

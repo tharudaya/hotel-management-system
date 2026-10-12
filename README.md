@@ -144,6 +144,9 @@ the WebSocket protocol at the top of `server/app/realtime/hub.py`, and `CLAUDE.m
   of the token is stored. Forgot-password gives the same answer whether or not the
   account exists. New passwords need 12+ characters and are checked against a list of
   common passwords. Production refuses the console email backend.
+- The audit trail (data changes and sign-ins) is append-only: a database trigger refuses
+  updates and deletes. The app's database user owns the tables, so it could still drop the
+  trigger; a separate restricted database role would close that gap.
 
 ## Configuration
 
@@ -165,8 +168,7 @@ development).
    summary but have no tile; a "today's arrivals" list with room assignment is needed.
 4. **User management is API-only and incomplete.** `/api/admin/users` creates, edits,
    (de)activates users, assigns roles, revokes sessions and issues invite/reset links, but
-   the admin UI covers users and roles; the audit log (`/api/admin/audit`) has an API but
-   no screen yet.
+   the admin UI covers users, roles and the audit log.
    There is no real email backend yet (only `console` and `disabled`); without one,
    admins share links in person and forgot-password sends nothing.
 5. **Room attendants have no UI.** They can use the API but lack `dashboard.view`; a

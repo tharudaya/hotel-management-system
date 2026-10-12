@@ -59,7 +59,7 @@ export function useUserAudit(id: number, enabled: boolean) {
     queryKey: auditKeys.forUser(id),
     queryFn: ({ signal }) =>
       apiFetch<AuditPage>(
-        `/api/admin/audit?target_type=user&target_id=${id}&page_size=${RECENT_AUDIT_ENTRIES}`,
+        `/api/admin/audit?target_type=user&target_id=${id}&limit=${RECENT_AUDIT_ENTRIES}`,
         { signal },
       ),
     enabled,

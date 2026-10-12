@@ -213,11 +213,18 @@ async def test_old_failures_outside_window_do_not_throttle(
     client: AsyncClient, make_user: MakeUser, db_session: AsyncSession
 ) -> None:
     await make_user("frontdesk")
-    for _ in range(5):
-        await login(client, password="wrong")
-    await db_session.execute(
-        update(AuditEvent).values(occurred_at=datetime.now(UTC) - timedelta(minutes=16))
+    # Five failures, older than the window (audit rows can't be backdated: insert them).
+    old = datetime.now(UTC) - timedelta(minutes=16)
+    db_session.add_all(
+        AuditEvent(
+            event_type=AuditEventType.LOGIN_FAILED.value,
+            username="frontdesk",
+            ip_address="127.0.0.1",
+            occurred_at=old,
+        )
+        for _ in range(5)
     )
+    await db_session.flush()
 
     assert (await login(client)).status_code == 200
 

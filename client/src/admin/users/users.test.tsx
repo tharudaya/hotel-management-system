@@ -93,12 +93,12 @@ function detail(overrides: Partial<UserDetail> = {}): UserDetail {
   }
 }
 
-const NO_AUDIT: AuditPage = { items: [], total: 0, page: 1, page_size: 10 }
+const NO_AUDIT: AuditPage = { items: [], next_cursor: null }
 
 const listKey = (changes: Partial<UserListParams> = {}) =>
   `GET /api/admin/users?${toApiQuery({ ...DEFAULT_PARAMS, ...changes })}`
 
-const AUDIT_KEY = 'GET /api/admin/audit?target_type=user&target_id=7&page_size=10'
+const AUDIT_KEY = 'GET /api/admin/audit?target_type=user&target_id=7&limit=10'
 
 function base(me = ADMIN_USER) {
   return {
@@ -212,7 +212,10 @@ describe('users list', () => {
     const router = renderApp('/admin/users')
     await screen.findByRole('link', { name: 'Bob Berg' })
 
-    await userEvent.setup().type(screen.getByRole('searchbox', { name: 'Search' }), 'ali')
+    // Pasted in one go (key-by-key typing can outlast the debounce on a busy machine).
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('searchbox', { name: 'Search' }))
+    await user.paste('ali')
 
     await waitFor(() => {
       expect(router.state.location.search).toBe('?q=ali')
@@ -732,29 +735,49 @@ describe('user detail: profile and history', () => {
         {
           items: [
             {
-              id: 2,
-              created_at: '2026-10-12T10:00:00Z',
+              id: 'change-2',
+              source: 'change',
+              occurred_at: '2026-10-12T10:00:00Z',
               action: 'user.role_changed',
               actor: { id: 5, username: 'admin', full_name: 'Ada Admin' },
               target_type: 'user',
               target_id: '7',
+              target_label: 'Alice Andersson',
               before: { role_id: 6, role_name: 'Room attendant' },
               after: { role_id: 4, role_name: 'Receptionist', sessions_revoked: 0 },
+              details: null,
+              ip: '10.0.0.5',
             },
             {
-              id: 1,
-              created_at: '2026-10-11T08:00:00Z',
+              id: 'auth-9',
+              source: 'auth',
+              occurred_at: '2026-10-11T09:00:00Z',
+              action: 'auth.login_failed',
+              actor: { id: 7, username: 'alice', full_name: 'Alice Andersson' },
+              target_type: 'user',
+              target_id: '7',
+              target_label: 'Alice Andersson',
+              before: null,
+              after: null,
+              details: { reason: 'bad_password' },
+              ip: '10.0.0.9',
+            },
+            {
+              id: 'change-1',
+              source: 'change',
+              occurred_at: '2026-10-11T08:00:00Z',
               action: 'user.created',
               actor: null,
               target_type: 'user',
               target_id: '7',
+              target_label: 'Alice Andersson',
               before: null,
               after: { username: 'alice' },
+              details: null,
+              ip: null,
             },
           ],
-          total: 2,
-          page: 1,
-          page_size: 10,
+          next_cursor: null,
         },
       ],
     })
@@ -765,8 +788,10 @@ describe('user detail: profile and history', () => {
     const items = within(list).getAllByRole('listitem')
     expect(items[0]).toHaveTextContent('Changed the role from Room attendant to Receptionist')
     expect(items[0]).toHaveTextContent('by Ada Admin')
-    expect(items[1]).toHaveTextContent('Created the account')
-    expect(items[1]).toHaveTextContent('by the system')
+    expect(items[1]).toHaveTextContent('Sign-in failed (bad password)')
+    expect(items[1]).toHaveTextContent('by Alice Andersson')
+    expect(items[2]).toHaveTextContent('Created the account')
+    expect(items[2]).toHaveTextContent('by the system')
   })
 
   it('handles an unknown user', async () => {

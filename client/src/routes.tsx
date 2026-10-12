@@ -1,7 +1,7 @@
 import type { RouteObject } from 'react-router'
 
 import { AdminIndex, AdminLayout } from './admin/AdminLayout'
-import { AdminAuditPage } from './admin/AdminPages'
+import { AuditLogPage } from './admin/auditlog/AuditLogPage'
 import { NewRolePage } from './admin/roles/NewRolePage'
 import { RoleDetailPage } from './admin/roles/RoleDetailPage'
 import { RolesListPage } from './admin/roles/RolesListPage'
@@ -81,7 +81,7 @@ export const routes: RouteObject[] = [
                     path: 'audit',
                     element: (
                       <RequirePermission permission={P.AUDIT_VIEW}>
-                        <AdminAuditPage />
+                        <AuditLogPage />
                       </RequirePermission>
                     ),
                   },
