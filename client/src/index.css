@@ -1,1 +1,11 @@
 @import 'tailwindcss';
+
+@layer base {
+  /* Tailwind 4 gives buttons the default arrow cursor; show the hand on anything
+     clickable. Disabled controls keep `cursor-not-allowed` from their own classes. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+}
