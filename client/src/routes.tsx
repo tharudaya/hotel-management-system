@@ -1,7 +1,10 @@
 import type { RouteObject } from 'react-router'
 
 import { AdminIndex, AdminLayout } from './admin/AdminLayout'
-import { AdminAuditPage, AdminRolesPage, AdminUsersPage } from './admin/AdminPages'
+import { AdminAuditPage, AdminRolesPage } from './admin/AdminPages'
+import { NewUserPage } from './admin/users/NewUserPage'
+import { UserDetailPage } from './admin/users/UserDetailPage'
+import { UsersListPage } from './admin/users/UsersListPage'
 import { ADMIN_PERMISSIONS, P } from './auth/permissions'
 import { ProtectedRoute } from './auth/ProtectedRoute'
 import { RequirePermission } from './auth/RequirePermission'
@@ -41,11 +44,19 @@ export const routes: RouteObject[] = [
                   { index: true, element: <AdminIndex /> },
                   {
                     path: 'users',
-                    element: (
-                      <RequirePermission permission={P.USER_VIEW}>
-                        <AdminUsersPage />
-                      </RequirePermission>
-                    ),
+                    element: <RequirePermission permission={P.USER_VIEW} />,
+                    children: [
+                      { index: true, element: <UsersListPage /> },
+                      {
+                        path: 'new',
+                        element: (
+                          <RequirePermission permission={P.USER_MANAGE}>
+                            <NewUserPage />
+                          </RequirePermission>
+                        ),
+                      },
+                      { path: ':userId', element: <UserDetailPage /> },
+                    ],
                   },
                   {
                     path: 'roles',

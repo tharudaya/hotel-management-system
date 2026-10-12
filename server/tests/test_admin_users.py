@@ -49,6 +49,8 @@ def assert_no_secrets(value: object) -> None:
     """No password hashes or session data anywhere in a response body."""
     if isinstance(value, dict):
         for key, item in value.items():
+            if key == "restrictions":
+                continue  # action names ("reset_password") mapped to reasons, not data
             assert "password" not in key and "session" not in key and "token" not in key, key
             assert_no_secrets(item)
     elif isinstance(value, list):

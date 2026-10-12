@@ -302,6 +302,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/users/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Assignable Roles
+         * @description Roles at this property for filtering and assignment; `assignable` marks the ones
+         *     you may give (you need user.manage and every permission the role grants).
+         */
+        get: operations["list_assignable_roles_api_admin_users_roles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/users/{user_id}": {
         parameters: {
             query?: never;
@@ -508,10 +529,87 @@ export interface paths {
         patch: operations["update_role_api_admin_roles__role_id__patch"];
         trace?: never;
     };
+    "/api/admin/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Audit
+         * @description Data changes at this property, newest first; filter by target to see one record's history.
+         */
+        get: operations["list_audit_api_admin_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AssignableRole */
+        AssignableRole: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Assignable */
+            assignable: boolean;
+        };
+        /** AuditActor */
+        AuditActor: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Full Name */
+            full_name: string;
+        };
+        /** AuditEntry */
+        AuditEntry: {
+            /** Id */
+            id: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Action */
+            action: string;
+            actor: components["schemas"]["AuditActor"] | null;
+            /** Target Type */
+            target_type: string;
+            /** Target Id */
+            target_id: string;
+            /** Before */
+            before: {
+                [key: string]: unknown;
+            } | null;
+            /** After */
+            after: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /**
+         * AuditPage
+         * @description Newest first.
+         */
+        AuditPage: {
+            /** Items */
+            items: components["schemas"]["AuditEntry"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+        };
         /** CatalogPermission */
         CatalogPermission: {
             /** Key */
@@ -878,7 +976,7 @@ export interface components {
         };
         /**
          * UserCreate
-         * @description A new user starts invited: no password until they set one (a later step).
+         * @description A new user starts invited: no password until they redeem an invite link.
          */
         UserCreate: {
             /** Username */
@@ -895,6 +993,8 @@ export interface components {
             employee_id?: string | null;
             /** Expires At */
             expires_at?: string | null;
+            /** Role Id */
+            role_id?: number | null;
         };
         /** UserDetail */
         UserDetail: {
@@ -926,6 +1026,7 @@ export interface components {
             expires_at: string | null;
             /** Deactivated At */
             deactivated_at: string | null;
+            restrictions: components["schemas"]["UserRestrictions"];
         };
         /** UserListItem */
         UserListItem: {
@@ -979,6 +1080,26 @@ export interface components {
             role: components["schemas"]["RoleRef"] | null;
             /** Permissions */
             permissions: string[];
+        };
+        /**
+         * UserRestrictions
+         * @description Why each action is not allowed for the signed-in user; null means allowed.
+         */
+        UserRestrictions: {
+            /** Edit */
+            edit?: string | null;
+            /** Change Role */
+            change_role?: string | null;
+            /** Deactivate */
+            deactivate?: string | null;
+            /** Reactivate */
+            reactivate?: string | null;
+            /** Revoke Sessions */
+            revoke_sessions?: string | null;
+            /** Send Invite */
+            send_invite?: string | null;
+            /** Reset Password */
+            reset_password?: string | null;
         };
         /**
          * UserStatus
@@ -1741,6 +1862,26 @@ export interface operations {
             };
         };
     };
+    list_assignable_roles_api_admin_users_roles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssignableRole"][];
+                };
+            };
+        };
+    };
     get_user_api_admin_users__user_id__get: {
         parameters: {
             query?: never;
@@ -2476,6 +2617,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_audit_api_admin_audit_get: {
+        parameters: {
+            query?: {
+                /** @description What changed, e.g. "user" or "role" */
+                target_type?: string | null;
+                target_id?: string | null;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditPage"];
                 };
             };
             /** @description Validation Error */

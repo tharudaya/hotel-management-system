@@ -20,6 +20,7 @@ from app.models import User
 from app.schemas.account import LinkIssued
 from app.schemas.actions import ErrorResponse
 from app.schemas.admin_users import (
+    AssignableRole,
     RoleAssignment,
     SessionsRevoked,
     UserCreate,
@@ -75,6 +76,13 @@ Manager = Annotated[UserAdminService, Depends(_service_for(P.USER_MANAGE))]
 async def list_users(service: Viewer, query: Annotated[UserListQuery, Query()]) -> UserListPage:
     """Search, filter (role at this property, status), sort and paginate users."""
     return await service.list_users(query)
+
+
+@router.get("/roles")
+async def list_assignable_roles(service: Viewer) -> list[AssignableRole]:
+    """Roles at this property for filtering and assignment; `assignable` marks the ones
+    you may give (you need user.manage and every permission the role grants)."""
+    return await service.list_assignable_roles()
 
 
 @router.get("/{user_id}", responses=ERRORS)

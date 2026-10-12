@@ -146,6 +146,59 @@ describe('accessibility (axe)', () => {
     await expectNoViolations()
   })
 
+  it('users list, add user form with errors, user detail and a dialog', async () => {
+    const roles = [{ id: 4, name: 'Receptionist', assignable: true }]
+    const item = {
+      id: 7,
+      username: 'alice',
+      full_name: 'Alice Andersson',
+      email: null,
+      job_title: null,
+      employee_id: null,
+      status: 'invited',
+      role: { id: 4, name: 'Receptionist' },
+      last_login_at: null,
+      expires_at: null,
+      created_at: '2026-01-01T09:00:00Z',
+    }
+    mockApi({
+      'GET /api/auth/me': () => [200, ADMIN_USER],
+      'GET /api/hotel': () => [200, HOTEL],
+      'GET /api/admin/users/roles': () => [200, roles],
+      'GET /api/admin/users?sort=name&page=1&page_size=25': () => [
+        200,
+        { items: [item], total: 1, page: 1, page_size: 25 },
+      ],
+      'GET /api/admin/users/7': () => [
+        200,
+        {
+          ...item,
+          phone: null,
+          roles: [{ property: { id: 1, name: 'Hotel', time_zone: 'UTC' }, role: item.role }],
+          deactivated_at: null,
+          restrictions: { reset_password: 'alice has not activated their account yet.' },
+        },
+      ],
+      'GET /api/admin/audit?target_type=user&target_id=7&page_size=10': () => [
+        200,
+        { items: [], total: 0, page: 1, page_size: 10 },
+      ],
+    })
+    const router = renderApp('/admin/users')
+    await screen.findByRole('link', { name: 'Alice Andersson' })
+    await expectNoViolations()
+
+    await router.navigate('/admin/users/new')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Create user' }))
+    await expectNoViolations()
+
+    await router.navigate('/admin/users/7')
+    await user.click(await screen.findByRole('button', { name: 'Deactivate' }))
+    await screen.findByRole('dialog')
+    await expectNoViolations()
+  })
+
   it('not-found page', async () => {
     mockApi({})
     renderApp('/no/such/page')

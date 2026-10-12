@@ -40,6 +40,8 @@ ACCESS: dict[tuple[str, str], str] = {
     ("POST", "/api/admin/users/{user_id}/revoke-sessions"): P.USER_MANAGE,
     ("POST", "/api/admin/users/{user_id}/invite"): P.USER_MANAGE,
     ("POST", "/api/admin/users/{user_id}/reset-password"): P.USER_MANAGE,
+    ("GET", "/api/admin/users/roles"): P.USER_VIEW,
+    ("GET", "/api/admin/audit"): P.AUDIT_VIEW,
     ("GET", "/api/admin/roles"): P.ROLE_VIEW,
     ("GET", "/api/admin/roles/permissions"): P.ROLE_VIEW,
     ("GET", "/api/admin/roles/{role_id}"): P.ROLE_VIEW,

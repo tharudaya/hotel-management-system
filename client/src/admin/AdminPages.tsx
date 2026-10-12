@@ -12,10 +12,6 @@ function AdminSection({ title, children }: { title: string; children: ReactNode 
   )
 }
 
-export function AdminUsersPage() {
-  return <AdminSection title="Users">Staff accounts will be managed here.</AdminSection>
-}
-
 export function AdminRolesPage() {
   return (
     <AdminSection title="Roles">Roles and their permissions will be managed here.</AdminSection>

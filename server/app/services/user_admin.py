@@ -31,7 +31,7 @@ from sqlalchemy.orm import QueryableAttribute
 
 from app.core.config import Settings
 from app.core.email import EmailSender
-from app.core.permissions import ADMIN_ROLE_NAME, ALL_PERMISSION_KEYS
+from app.core.permissions import ADMIN_ROLE_NAME, ALL_PERMISSION_KEYS, P
 from app.models import (
     AuditAction,
     Property,
@@ -44,13 +44,16 @@ from app.models import (
 from app.realtime.bus import EventBus
 from app.schemas.account import LinkIssued
 from app.schemas.admin_users import (
+    AssignableRole,
     PropertyRole,
     SessionsRevoked,
+    UserAction,
     UserCreate,
     UserDetail,
     UserListItem,
     UserListPage,
     UserListQuery,
+    UserRestrictions,
     UserStatus,
     UserUpdate,
 )
@@ -199,11 +202,48 @@ class UserAdminService:
         user = await self._load(user_id)
         return await self._detail(user)
 
+    async def list_assignable_roles(self) -> list[AssignableRole]:
+        """Every role at the property (for filters), flagged if you may assign it."""
+        roles = (
+            await self.db.scalars(
+                select(Role)
+                .where(Role.property_id == self.property_id)
+                .order_by(Role.is_system.desc(), Role.id)
+            )
+        ).all()
+        keys: dict[int, set[str]] = {role.id: set() for role in roles}
+        for role_id_, key in (
+            await self.db.execute(
+                select(RolePermission.role_id, RolePermission.permission_key).where(
+                    RolePermission.role_id.in_(keys)
+                )
+            )
+        ).all():
+            keys[role_id_].add(key)
+        may_manage = P.USER_MANAGE in self.actor_permissions
+        return [
+            AssignableRole(
+                id=role.id,
+                name=role.name,
+                assignable=may_manage
+                and (
+                    ALL_PERMISSION_KEYS
+                    if self._is_admin_role(role)
+                    else frozenset(keys[role.id]) & ALL_PERMISSION_KEYS
+                )
+                <= self.actor_permissions,
+            )
+            for role in roles
+        ]
+
     # --- writes ----------------------------------------------------------------------
 
     async def create_user(self, data: UserCreate) -> UserDetail:
         username = data.username.lower()
         email = data.email.lower() if data.email else None
+        role: Role | None = None
+        if data.role_id is not None:
+            role = await self._assignable_role(data.role_id)
         await self._ensure_unique(username=username, email=email)
         user = User(
             username=username,
@@ -217,7 +257,21 @@ class UserAdminService:
         )
         self.db.add(user)
         await self._flush_unique()
-        after = {"username": username, **{f: _jsonable(getattr(user, f)) for f in PROFILE_FIELDS}}
+        after: dict[str, Any] = {
+            "username": username,
+            **{f: _jsonable(getattr(user, f)) for f in PROFILE_FIELDS},
+        }
+        if role is not None:
+            self.db.add(
+                UserPropertyRole(
+                    user_id=user.id,
+                    property_id=self.property_id,
+                    role_id=role.id,
+                    assigned_by=self.actor.id,
+                    assigned_at=datetime.now(UTC),
+                )
+            )
+            after |= {"role_id": role.id, "role_name": role.name}
         self._audit(AuditAction.USER_CREATED, user, before=None, after=after)
         await self.db.commit()
         return await self._detail(user)
@@ -266,16 +320,8 @@ class UserAdminService:
         target = await self._load(user_id)
         if target.id == self.actor.id:
             raise DomainError("You cannot change your own role.", code="self_action")
-        new_role = await self.db.scalar(
-            select(Role).where(Role.id == role_id, Role.property_id == self.property_id)
-        )
-        if new_role is None:
-            raise NotFoundError(f"Role {role_id} not found at this property")
+        new_role = await self._assignable_role(role_id)
         await self._ensure_can_manage(target)
-        if not await self._role_permissions(new_role) <= self.actor_permissions:
-            raise PermissionDeniedError(
-                f"You cannot assign the role {new_role.name!r}: it has permissions you don't have."
-            )
 
         current = await self._assignment(target.id)
         if current is not None and current.role_id == new_role.id:
@@ -441,6 +487,67 @@ class UserAdminService:
 
     # --- guards ----------------------------------------------------------------------
 
+    async def _assignable_role(self, role_id: int) -> Role:
+        role = await self.db.scalar(
+            select(Role).where(Role.id == role_id, Role.property_id == self.property_id)
+        )
+        if role is None:
+            raise NotFoundError(f"Role {role_id} not found at this property")
+        if not await self._role_permissions(role) <= self.actor_permissions:
+            raise PermissionDeniedError(
+                f"You cannot assign the role {role.name!r}: it has permissions you don't have."
+            )
+        return role
+
+    async def _restrictions(self, target: User) -> dict[UserAction, str]:
+        """Why each action is not allowed for the actor right now (same rules as the
+        actions themselves; for disabling buttons, the actions still check)."""
+        everything: tuple[UserAction, ...] = (
+            "edit",
+            "change_role",
+            "deactivate",
+            "reactivate",
+            "revoke_sessions",
+            "send_invite",
+            "reset_password",
+        )
+        if P.USER_MANAGE not in self.actor_permissions:
+            return dict.fromkeys(everything, "You do not have permission to manage users.")
+        role = await self._role_of(target.id)
+        if role is not None and not await self._role_permissions(role) <= self.actor_permissions:
+            return dict.fromkeys(everything, f"{target.username} has permissions you don't have.")
+
+        now = datetime.now(UTC)
+        status = user_status(target, now)
+        result: dict[UserAction, str] = {}
+        if target.id == self.actor.id:
+            result["change_role"] = "You cannot change your own role."
+            result["deactivate"] = "You cannot deactivate yourself."
+        elif await self._is_last_admin(target, lock=False):
+            reason = (
+                f"{target.username} is the last active Admin. "
+                "Give another user the Admin role first."
+            )
+            result["change_role"] = reason
+            result["deactivate"] = reason
+        if status is UserStatus.DEACTIVATED:
+            result["deactivate"] = f"{target.username} is already deactivated."
+        else:
+            result["reactivate"] = f"{target.username} is not deactivated."
+        if status in (UserStatus.DEACTIVATED, UserStatus.EXPIRED):
+            reason = f"{target.username} is {status.value}; links cannot be sent."
+            result["send_invite"] = reason
+            result["reset_password"] = reason
+        if target.password_hash is not None:
+            result.setdefault(
+                "send_invite", f"{target.username} has already activated their account."
+            )
+        else:
+            result.setdefault(
+                "reset_password", f"{target.username} has not activated their account yet."
+            )
+        return result
+
     async def _ensure_can_manage(self, target: User) -> None:
         """Only users whose permissions are a subset of yours (no managing your betters)."""
         role = await self._role_of(target.id)
@@ -456,17 +563,22 @@ class UserAdminService:
         Locks the property's Admin role row first, so concurrent admin changes are
         serialised and cannot both see "another admin remains".
         """
-        admin_role_id = await self.db.scalar(
-            select(Role.id)
-            .where(
-                Role.property_id == self.property_id,
-                Role.is_system,
-                Role.name == ADMIN_ROLE_NAME,
+        if await self._is_last_admin(target, lock=True):
+            raise DomainError(
+                f"{target.username} is the last active Admin of this property and {what}. "
+                "Give another user the Admin role first.",
+                code="last_admin",
             )
-            .with_for_update()
+
+    async def _is_last_admin(self, target: User, *, lock: bool) -> bool:
+        query = select(Role.id).where(
+            Role.property_id == self.property_id,
+            Role.is_system,
+            Role.name == ADMIN_ROLE_NAME,
         )
+        admin_role_id = await self.db.scalar(query.with_for_update() if lock else query)
         if admin_role_id is None:
-            return
+            return False
         now = datetime.now(UTC)
         active_admins = list(
             (
@@ -482,12 +594,7 @@ class UserAdminService:
                 )
             ).all()
         )
-        if active_admins == [target.id]:
-            raise DomainError(
-                f"{target.username} is the last active Admin of this property and {what}. "
-                "Give another user the Admin role first.",
-                code="last_admin",
-            )
+        return active_admins == [target.id]
 
     async def _ensure_unique(
         self, *, username: str | None = None, email: str | None = None, exclude_user_id: int = 0
@@ -596,6 +703,7 @@ class UserAdminService:
             last_login_at=user.last_login_at,
             expires_at=user.expires_at,
             deactivated_at=user.deactivated_at,
+            restrictions=UserRestrictions(**await self._restrictions(user)),
         )
 
     def _audit(

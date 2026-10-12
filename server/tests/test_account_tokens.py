@@ -13,7 +13,7 @@ from app.services.account_tokens import FORGOT_MAX_PER_EMAIL, FORGOT_RESPONSE
 from tests.conftest import MakeUser, RecordingEmailSender, Roles
 
 USERS = "/api/admin/users"
-GOOD_PASSWORD = "Tr1cky-Ferret-Lamp"  # noqa: S105
+GOOD_PASSWORD = "Tr1cky-Ferret-Lamp"
 FORGOT_BODY = {"detail": FORGOT_RESPONSE}
 
 
