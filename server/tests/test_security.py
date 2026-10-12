@@ -30,6 +30,14 @@ ACCESS: dict[tuple[str, str], str] = {
     ("POST", "/api/reservations/{reservation_id}/check-in"): P.RESERVATION_CHECK_IN,
     ("POST", "/api/reservations/{reservation_id}/check-out"): P.RESERVATION_CHECK_OUT,
     ("PATCH", "/api/rooms/{room_id}/housekeeping-status"): P.ROOM_UPDATE_HOUSEKEEPING_STATUS,
+    ("GET", "/api/admin/users"): P.USER_VIEW,
+    ("GET", "/api/admin/users/{user_id}"): P.USER_VIEW,
+    ("POST", "/api/admin/users"): P.USER_MANAGE,
+    ("PATCH", "/api/admin/users/{user_id}"): P.USER_MANAGE,
+    ("PUT", "/api/admin/users/{user_id}/role"): P.USER_MANAGE,
+    ("POST", "/api/admin/users/{user_id}/deactivate"): P.USER_MANAGE,
+    ("POST", "/api/admin/users/{user_id}/reactivate"): P.USER_MANAGE,
+    ("POST", "/api/admin/users/{user_id}/revoke-sessions"): P.USER_MANAGE,
 }
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {r.name: r.permissions for r in DEFAULT_ROLES}
 
@@ -47,7 +55,12 @@ def operations(app: FastAPI) -> set[tuple[str, str]]:
 
 
 def concrete(path: str) -> str:
-    return path.replace("{reservation_id}", "1").replace("{room_id}", "1")
+    # A user id no real user has, so allowed requests can't change anyone (404).
+    return (
+        path.replace("{reservation_id}", "1")
+        .replace("{room_id}", "1")
+        .replace("{user_id}", "999999")
+    )
 
 
 def test_every_operation_has_a_declared_access_rule(app: FastAPI) -> None:

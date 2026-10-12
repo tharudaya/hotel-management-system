@@ -5,6 +5,7 @@ Alembic autogenerates migrations.
 """
 
 from app.models.access import Permission, Property, Role, RolePermission, UserPropertyRole
+from app.models.audit import AuditAction, AuditLog
 from app.models.auth import AuditEvent, AuditEventType, UserSession
 from app.models.base import Base
 from app.models.enums import HousekeepingStatus, ReservationStatus
@@ -14,8 +15,10 @@ from app.models.room import Room, RoomType
 from app.models.user import User
 
 __all__ = [
+    "AuditAction",
     "AuditEvent",
     "AuditEventType",
+    "AuditLog",
     "Base",
     "Guest",
     "HousekeepingStatus",

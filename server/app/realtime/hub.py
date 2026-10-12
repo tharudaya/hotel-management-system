@@ -237,7 +237,7 @@ class ConnectionManager:
         if isinstance(event, SessionEnded):
             for connection in list(self._connections):
                 if connection.session_token_hash == event.session_token_hash:
-                    connection.close(CLOSE_UNAUTHENTICATED, "Logged out")
+                    connection.close(CLOSE_UNAUTHENTICATED, event.reason)
             return
         if isinstance(event, PermissionsChanged):
             affected = None if event.user_ids is None else set(event.user_ids)

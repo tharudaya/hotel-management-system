@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session, UOWTransaction
 
 from app.api.deps import get_hotel_today
 from app.models import (
-    AuditEvent,
-    AuditEventType,
+    AuditAction,
+    AuditLog,
     Guest,
     HousekeepingStatus,
     Reservation,
@@ -105,9 +105,9 @@ async def hotel(db_session: AsyncSession, fixed_today: None) -> Hotel:
     return Hotel(std=std, dlx=dlx, rooms=rooms, reservations=reservations)
 
 
-async def audit_rows(db: AsyncSession, event_type: AuditEventType) -> list[AuditEvent]:
-    query = select(AuditEvent).where(AuditEvent.event_type == event_type.value)
-    return list((await db.scalars(query.order_by(AuditEvent.id))).all())
+async def audit_rows(db: AsyncSession, action: AuditAction) -> list[AuditLog]:
+    query = select(AuditLog).where(AuditLog.action == action.value)
+    return list((await db.scalars(query.order_by(AuditLog.id))).all())
 
 
 async def refresh(db: AsyncSession, *objects: object) -> None:
@@ -181,15 +181,16 @@ async def test_check_in_to_pre_assigned_room(
     await refresh(db_session, arrival, room)
     assert (arrival.status, arrival.room_id, room.version) == (RS.CHECKED_IN, room.id, 2)
 
-    [audit] = await audit_rows(db_session, AuditEventType.RESERVATION_CHECKED_IN)
-    assert (audit.user_id, audit.username) == (user.id, "frontdesk")
-    assert audit.details == {
-        "reservation_id": arrival.id,
-        "confirmation_code": "arrival",
+    [audit] = await audit_rows(db_session, AuditAction.RESERVATION_CHECKED_IN)
+    assert audit.actor_user_id == user.id
+    assert (audit.target_type, audit.target_id) == ("reservation", str(arrival.id))
+    assert audit.property_id is not None
+    assert audit.before == {"status": "confirmed", "room_id": room.id}
+    assert audit.after == {
+        "status": "checked_in",
         "room_id": room.id,
         "room_number": "101",
-        "before": {"status": "confirmed", "room_id": room.id},
-        "after": {"status": "checked_in", "room_id": room.id},
+        "confirmation_code": "arrival",
     }
 
     room_evt, summary_evt = published
@@ -292,7 +293,7 @@ async def test_check_in_rejected(
     assert response.json()["detail"].startswith(message)
     await refresh(db_session, target)
     assert target.status == status_before
-    assert await audit_rows(db_session, AuditEventType.RESERVATION_CHECKED_IN) == []
+    assert await audit_rows(db_session, AuditAction.RESERVATION_CHECKED_IN) == []
     assert published == []
 
 
@@ -376,7 +377,7 @@ async def test_check_in_concurrent_update_conflict(
     # The whole transaction was rolled back: reservation, room and audit row.
     await refresh(db_session, arrival, room)
     assert (arrival.status, room.version) == (RS.CONFIRMED, 1)
-    assert await audit_rows(db_session, AuditEventType.RESERVATION_CHECKED_IN) == []
+    assert await audit_rows(db_session, AuditAction.RESERVATION_CHECKED_IN) == []
     assert published == []
 
 
@@ -405,11 +406,14 @@ async def test_check_out_makes_room_dirty(
 
     await refresh(db_session, guest)
     assert guest.status == RS.CHECKED_OUT
-    [audit] = await audit_rows(db_session, AuditEventType.RESERVATION_CHECKED_OUT)
-    assert audit.user_id == user.id
-    assert audit.details is not None
-    assert audit.details["before"] == {"status": "checked_in", "housekeeping_status": "clean"}
-    assert audit.details["after"] == {"status": "checked_out", "housekeeping_status": "dirty"}
+    [audit] = await audit_rows(db_session, AuditAction.RESERVATION_CHECKED_OUT)
+    assert audit.actor_user_id == user.id
+    assert audit.before == {"status": "checked_in", "housekeeping_status": "clean"}
+    assert audit.after is not None
+    assert {k: audit.after[k] for k in ("status", "housekeeping_status")} == {
+        "status": "checked_out",
+        "housekeeping_status": "dirty",
+    }
     [evt] = room_events(published)
     assert evt.room.model_dump(mode="json") == entry
     [summary_evt] = summary_events(published)
@@ -500,16 +504,14 @@ async def test_housekeeping_status_change(
     assert finished.json()["housekeeping_status"] == "clean"
     assert finished.json()["version"] == 3
 
-    first, second = await audit_rows(db_session, AuditEventType.ROOM_HOUSEKEEPING_STATUS_CHANGED)
-    assert first.user_id == user.id
-    assert first.details == {
-        "room_id": room.id,
-        "room_number": "103",
-        "before": {"housekeeping_status": "dirty", "version": 1},
-        "after": {"housekeeping_status": "in_progress", "version": 2},
-    }
-    assert second.details is not None
-    assert second.details["after"] == {"housekeeping_status": "clean", "version": 3}
+    first, second = await audit_rows(db_session, AuditAction.ROOM_HOUSEKEEPING_STATUS_CHANGED)
+    assert first.actor_user_id == user.id
+    assert (first.target_type, first.target_id) == ("room", str(room.id))
+    assert first.before == {"housekeeping_status": "dirty", "version": 1}
+    assert first.after == {"housekeeping_status": "in_progress", "version": 2, "room_number": "103"}
+    assert second.after is not None
+    assert second.after["housekeeping_status"] == "clean"
+    assert second.after["version"] == 3
     assert [evt.room.housekeeping_status for evt in room_events(published)] == [
         "in_progress",
         "clean",
@@ -539,7 +541,7 @@ async def test_housekeeping_invalid_transition(
     }
     await refresh(db_session, room)
     assert (room.housekeeping_status, room.version) == (HK.OUT_OF_ORDER, 1)
-    assert await audit_rows(db_session, AuditEventType.ROOM_HOUSEKEEPING_STATUS_CHANGED) == []
+    assert await audit_rows(db_session, AuditAction.ROOM_HOUSEKEEPING_STATUS_CHANGED) == []
     assert published == []
 
 
@@ -626,7 +628,7 @@ async def test_housekeeping_concurrent_update_conflict(
     assert response.json()["code"] == "version_conflict"
     await refresh(db_session, room)
     assert (room.housekeeping_status, room.version) == (HK.DIRTY, 1)
-    assert await audit_rows(db_session, AuditEventType.ROOM_HOUSEKEEPING_STATUS_CHANGED) == []
+    assert await audit_rows(db_session, AuditAction.ROOM_HOUSEKEEPING_STATUS_CHANGED) == []
     assert published == []
 
 

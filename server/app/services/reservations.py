@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
-    AuditEventType,
+    AuditAction,
     Guest,
     HousekeepingStatus,
     Reservation,
@@ -19,7 +19,7 @@ from app.models import (
 from app.realtime.bus import EventBus
 from app.schemas.dashboard import DashboardRoom
 from app.schemas.reservations import GuestOut, ReservationDetail
-from app.services.audit import ClientInfo, record_event
+from app.services.audit import ClientInfo, record_change
 from app.services.errors import DomainError, InvalidTransitionError, NotFoundError
 from app.services.room_changes import (
     commit,
@@ -133,6 +133,7 @@ async def check_in(
     room_id: int,
     expected_room_version: int,
     actor: User,
+    property_id: int,
     client: ClientInfo,
     today: date,
 ) -> DashboardRoom:
@@ -169,19 +170,20 @@ async def check_in(
     reservation.status = ReservationStatus.CHECKED_IN
     reservation.room_id = room.id
     touch(room)
-    record_event(
+    record_change(
         db,
-        AuditEventType.RESERVATION_CHECKED_IN,
-        client,
-        user_id=actor.id,
-        username=actor.username,
-        details={
-            "reservation_id": reservation.id,
-            "confirmation_code": reservation.confirmation_code,
+        action=AuditAction.RESERVATION_CHECKED_IN,
+        target_type="reservation",
+        target_id=reservation.id,
+        actor=actor,
+        property_id=property_id,
+        client=client,
+        before={"status": ReservationStatus.CONFIRMED.value, "room_id": previous_room_id},
+        after={
+            "status": ReservationStatus.CHECKED_IN.value,
             "room_id": room.id,
             "room_number": room.number,
-            "before": {"status": ReservationStatus.CONFIRMED.value, "room_id": previous_room_id},
-            "after": {"status": ReservationStatus.CHECKED_IN.value, "room_id": room.id},
+            "confirmation_code": reservation.confirmation_code,
         },
     )
     try:
@@ -209,6 +211,7 @@ async def check_out(
     reservation_id: int,
     expected_room_version: int,
     actor: User,
+    property_id: int,
     client: ClientInfo,
     today: date,
 ) -> DashboardRoom:
@@ -225,25 +228,24 @@ async def check_out(
     reservation.status = ReservationStatus.CHECKED_OUT
     room.housekeeping_status = HousekeepingStatus.DIRTY
     touch(room)  # bumps the version even if the room was already dirty
-    record_event(
+    record_change(
         db,
-        AuditEventType.RESERVATION_CHECKED_OUT,
-        client,
-        user_id=actor.id,
-        username=actor.username,
-        details={
-            "reservation_id": reservation.id,
-            "confirmation_code": reservation.confirmation_code,
+        action=AuditAction.RESERVATION_CHECKED_OUT,
+        target_type="reservation",
+        target_id=reservation.id,
+        actor=actor,
+        property_id=property_id,
+        client=client,
+        before={
+            "status": ReservationStatus.CHECKED_IN.value,
+            "housekeeping_status": housekeeping_before.value,
+        },
+        after={
+            "status": ReservationStatus.CHECKED_OUT.value,
+            "housekeeping_status": HousekeepingStatus.DIRTY.value,
             "room_id": room.id,
             "room_number": room.number,
-            "before": {
-                "status": ReservationStatus.CHECKED_IN.value,
-                "housekeeping_status": housekeeping_before.value,
-            },
-            "after": {
-                "status": ReservationStatus.CHECKED_OUT.value,
-                "housekeeping_status": HousekeepingStatus.DIRTY.value,
-            },
+            "confirmation_code": reservation.confirmation_code,
         },
     )
     await commit(db, room)

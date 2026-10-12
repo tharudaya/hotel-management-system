@@ -38,13 +38,13 @@ class AuditEventType(StrEnum):
     LOGIN_FAILED = "auth.login_failed"
     LOGIN_BLOCKED = "auth.login_blocked"
     LOGOUT = "auth.logout"
-    RESERVATION_CHECKED_IN = "reservation.checked_in"
-    RESERVATION_CHECKED_OUT = "reservation.checked_out"
-    ROOM_HOUSEKEEPING_STATUS_CHANGED = "room.housekeeping_status_changed"
 
 
 class AuditEvent(Base):
-    """Append-only security/audit log."""
+    """Append-only authentication log (logins, logouts, throttling).
+
+    Data changes (check-ins, housekeeping, user administration) go to audit_log.
+    """
 
     __tablename__ = "audit_events"
     __table_args__ = (

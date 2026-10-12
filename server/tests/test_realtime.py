@@ -554,6 +554,43 @@ async def test_heartbeat_catches_a_role_change_without_an_event(
             await expect_close(ws, 4403, "Insufficient permissions")
 
 
+@pytest.mark.parametrize(
+    ("action", "suffix", "payload"),
+    [
+        ("deactivate", "/deactivate", None),
+        ("role change", "/role", "room attendant"),
+        ("revoke sessions", "/revoke-sessions", None),
+    ],
+)
+async def test_admin_actions_close_the_users_socket(
+    test_settings: Settings,
+    seeded: dict[str, int],
+    live_db: async_sessionmaker[AsyncSession],
+    action: str,
+    suffix: str,
+    payload: object,
+) -> None:
+    async with live_db() as db:
+        target_id = await db.scalar(select(User.id).where(User.username == "frontdesk"))
+        if payload == "room attendant":
+            payload = {"role_id": await role_id(db, Roles.ROOM_ATTENDANT)}
+    async with live_clients(test_settings) as live_client_factory:
+        app, front_desk = await live(live_client_factory)
+        _, admin = await live_client_factory(app)
+        await login(admin, Roles.ADMIN)
+
+        async with connect(front_desk) as ws:
+            await receive(ws)
+            response = await admin.request(
+                "PUT" if suffix == "/role" else "POST",
+                f"/api/admin/users/{target_id}{suffix}",
+                json=payload,
+            )
+            assert response.status_code == 200, (action, response.text)
+
+            await expect_close(ws, 4401, "Session revoked")
+
+
 # --- heartbeat -------------------------------------------------------------------------
 
 

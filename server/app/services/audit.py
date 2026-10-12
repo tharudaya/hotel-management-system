@@ -3,7 +3,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AuditEvent, AuditEventType
+from app.models import AuditAction, AuditEvent, AuditEventType, AuditLog, User
 
 
 @dataclass(frozen=True)
@@ -12,6 +12,39 @@ class ClientInfo:
 
     ip_address: str | None
     user_agent: str | None
+
+
+def record_change(
+    db: AsyncSession,
+    *,
+    action: AuditAction,
+    target_type: str,
+    target_id: int | str,
+    actor: User | None,
+    property_id: int | None,
+    client: ClientInfo | None,
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+) -> AuditLog:
+    """Add an audit_log row for a data change to the current transaction.
+
+    Write it in the same transaction as the change (the caller commits), so the log
+    and the data never disagree. `before`/`after` hold only what changed (plus any
+    context worth keeping, such as a room number); never secrets or password hashes.
+    """
+    row = AuditLog(
+        property_id=property_id,
+        actor_user_id=actor.id if actor else None,
+        action=action.value,
+        target_type=target_type,
+        target_id=str(target_id),
+        before=before,
+        after=after,
+        ip=client.ip_address if client else None,
+        user_agent=client.user_agent[:500] if client and client.user_agent else None,
+    )
+    db.add(row)
+    return row
 
 
 def record_event(
@@ -23,7 +56,7 @@ def record_event(
     username: str | None = None,
     details: dict[str, Any] | None = None,
 ) -> AuditEvent:
-    """Add an audit row to the current transaction (the caller commits)."""
+    """Add an authentication event (audit_events) to the current transaction."""
     event = AuditEvent(
         event_type=event_type.value,
         user_id=user_id,

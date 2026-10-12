@@ -157,9 +157,10 @@ most important: `DATABASE_URL`, `SESSION_SECRET`, `SESSION_COOKIE_SECURE`, `CORS
    throttling and audit) are correct behind a proxy.
 3. **Unassigned arrivals can't be checked in from the dashboard.** They are counted in the
    summary but have no tile; a "today's arrivals" list with room assignment is needed.
-4. **No user management yet.** Roles, permissions and per-property assignments exist in
-   the database, but users are still created only by the seed script; there is no API or
-   UI to manage users or roles, reset passwords or revoke sessions, and no password policy.
+4. **User management is API-only and incomplete.** `/api/admin/users` creates, edits,
+   (de)activates users, assigns roles and revokes sessions, but there is no UI yet, new
+   users stay "invited" until a set-password/invite flow exists, roles cannot be created
+   or edited through the API, and there is no password policy.
 5. **Room attendants have no UI.** They can use the API but lack `dashboard.view`; a
    housekeeping view is a natural next feature.
 6. **Expired sessions and audit rows are never purged.** Add a periodic cleanup job and a

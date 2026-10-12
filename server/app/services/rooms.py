@@ -5,10 +5,10 @@ from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import P
-from app.models import AuditEventType, HousekeepingStatus, User
+from app.models import AuditAction, HousekeepingStatus, User
 from app.realtime.bus import EventBus
 from app.schemas.dashboard import DashboardRoom
-from app.services.audit import ClientInfo, record_event
+from app.services.audit import ClientInfo, record_change
 from app.services.errors import InvalidTransitionError, PermissionDeniedError
 from app.services.room_changes import commit, ensure_version, load_room, publish_room_changes
 
@@ -74,6 +74,7 @@ async def change_housekeeping_status(
     expected_version: int,
     actor: User,
     actor_permissions: frozenset[str],
+    property_id: int,
     client: ClientInfo,
     today: date,
 ) -> DashboardRoom:
@@ -88,17 +89,19 @@ async def change_housekeeping_status(
     validate_housekeeping_transition(before, status)
 
     room.housekeeping_status = status
-    record_event(
+    record_change(
         db,
-        AuditEventType.ROOM_HOUSEKEEPING_STATUS_CHANGED,
-        client,
-        user_id=actor.id,
-        username=actor.username,
-        details={
-            "room_id": room.id,
+        action=AuditAction.ROOM_HOUSEKEEPING_STATUS_CHANGED,
+        target_type="room",
+        target_id=room.id,
+        actor=actor,
+        property_id=property_id,
+        client=client,
+        before={"housekeeping_status": before.value, "version": expected_version},
+        after={
+            "housekeeping_status": status.value,
+            "version": expected_version + 1,
             "room_number": room.number,
-            "before": {"housekeeping_status": before.value, "version": expected_version},
-            "after": {"housekeeping_status": status.value, "version": expected_version + 1},
         },
     )
     await commit(db, room)

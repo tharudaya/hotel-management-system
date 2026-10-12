@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Path, status
 from app.api.deps import (
     ClientInfoDep,
     CurrentPermissions,
+    CurrentPropertyId,
     EventBusDep,
     HotelTodayDep,
     require_permission,
@@ -49,6 +50,7 @@ async def check_in(
     db: SessionDep,
     bus: EventBusDep,
     user: CheckInUser,
+    property_id: CurrentPropertyId,
     client: ClientInfoDep,
     today: HotelTodayDep,
 ) -> DashboardRoom:
@@ -60,6 +62,7 @@ async def check_in(
         room_id=body.room_id,
         expected_room_version=body.room_version,
         actor=user,
+        property_id=property_id,
         client=client,
         today=today,
     )
@@ -72,6 +75,7 @@ async def check_out(
     db: SessionDep,
     bus: EventBusDep,
     user: CheckOutUser,
+    property_id: CurrentPropertyId,
     client: ClientInfoDep,
     today: HotelTodayDep,
 ) -> DashboardRoom:
@@ -82,6 +86,7 @@ async def check_out(
         reservation_id=reservation_id,
         expected_room_version=body.room_version,
         actor=user,
+        property_id=property_id,
         client=client,
         today=today,
     )

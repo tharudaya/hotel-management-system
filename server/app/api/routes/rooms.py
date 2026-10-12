@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Path, status
 from app.api.deps import (
     ClientInfoDep,
     CurrentPermissions,
+    CurrentPropertyId,
     EventBusDep,
     HotelTodayDep,
     require_permission,
@@ -35,6 +36,7 @@ async def update_housekeeping_status(
     bus: EventBusDep,
     user: HousekeepingUser,
     permissions: CurrentPermissions,
+    property_id: CurrentPropertyId,
     client: ClientInfoDep,
     today: HotelTodayDep,
 ) -> DashboardRoom:
@@ -50,6 +52,7 @@ async def update_housekeeping_status(
         expected_version=body.version,
         actor=user,
         actor_permissions=permissions,
+        property_id=property_id,
         client=client,
         today=today,
     )

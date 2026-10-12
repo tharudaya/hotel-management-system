@@ -24,7 +24,8 @@ class User(CreatedAtMixin, Base):
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
     username: Mapped[str] = mapped_column(String(50), unique=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
+    # Null for invited users who have not set a password yet (they cannot log in).
+    password_hash: Mapped[str | None] = mapped_column(String(255))
     full_name: Mapped[str] = mapped_column(String(200))
     # Optional: not every staff member has an email address. Unique when present.
     email: Mapped[str | None] = mapped_column(String(320), unique=True)

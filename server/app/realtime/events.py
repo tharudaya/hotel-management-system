@@ -33,6 +33,8 @@ class SessionEnded(BaseModel):
     type: Literal["session_ended"] = "session_ended"
     session_token_hash: str
     user_id: int
+    # Close reason shown to the client.
+    reason: str = "Logged out"
 
 
 class PermissionsChanged(BaseModel):

@@ -112,6 +112,16 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 
 
 @pytest.fixture
+async def second_client(app: FastAPI, client: AsyncClient) -> AsyncIterator[AsyncClient]:
+    """Another browser on the same app (own cookies), e.g. the user being administered.
+
+    Depends on `client`, whose context already runs the app's lifespan.
+    """
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as other:
+        yield other
+
+
+@pytest.fixture
 async def client_without_database(test_settings: Settings) -> AsyncIterator[AsyncClient]:
     """Client whose database URL points at a port where nothing is listening."""
     url = make_url(test_settings.database_url).set(host="127.0.0.1", port=1)

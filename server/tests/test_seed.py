@@ -45,4 +45,7 @@ async def test_seed_creates_one_user_per_role_with_dev_password(db_session: Asyn
     ).all()
 
     assert sorted(role for _, role in rows) == sorted(r.name for r in DEFAULT_ROLES)
-    assert all(verify_password(dev_password(u.username), u.password_hash) for u, _ in rows)
+    assert all(
+        u.password_hash is not None and verify_password(dev_password(u.username), u.password_hash)
+        for u, _ in rows
+    )

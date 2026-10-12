@@ -123,6 +123,10 @@ async def login(
         burn_password_check(password)
         raise await _fail(db, client, username, "unknown_user")
 
+    if user.password_hash is None:
+        # Invited, no password set yet: same work and same answer as a wrong password.
+        burn_password_check(password)
+        raise await _fail(db, client, username, "invited", user.id)
     valid, updated_hash = verify_and_update_password(password, user.password_hash)
     if not valid:
         raise await _fail(db, client, username, "bad_password", user.id)
@@ -178,6 +182,28 @@ async def _revoke(db: AsyncSession, settings: Settings, token: str, now: datetim
         .values(revoked_at=now)
         .returning(UserSession.user_id)
     )
+
+
+async def revoke_user_sessions(db: AsyncSession, user_id: int, now: datetime) -> list[str]:
+    """Revoke every active session of a user (in the current transaction).
+
+    Returns the revoked sessions' token hashes: after commit, publish SessionEnded for
+    each (publish_sessions_ended) so the hub closes those WebSockets.
+    """
+    hashes = await db.scalars(
+        update(UserSession)
+        .where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))
+        .values(revoked_at=now)
+        .returning(UserSession.token_hash)
+    )
+    return list(hashes.all())
+
+
+async def publish_sessions_ended(bus: EventBus, user_id: int, token_hashes: list[str]) -> None:
+    for token_hash in token_hashes:
+        await bus.publish(
+            SessionEnded(session_token_hash=token_hash, user_id=user_id, reason="Session revoked")
+        )
 
 
 async def logout(
