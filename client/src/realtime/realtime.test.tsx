@@ -125,6 +125,39 @@ describe('live dashboard', () => {
     expect(await screen.findByRole('status', { name: 'Live updates: Live' })).toBeInTheDocument()
   })
 
+  it('refetches the user and the dashboard when permissions change', async () => {
+    let meCalls = 0
+    const requests = { rooms: 0 }
+    mockApi({
+      'GET /api/auth/me': () => {
+        meCalls += 1
+        // As if an admin edited the role: the fresh /me reflects it.
+        return [
+          200,
+          meCalls === 1 ? FRONT_DESK_USER : { ...FRONT_DESK_USER, full_name: 'Fran Lead' },
+        ]
+      },
+      'GET /api/hotel': () => [200, HOTEL],
+      'GET /api/dashboard/rooms': () => {
+        requests.rooms += 1
+        return [200, { business_date: BUSINESS_DATE, rooms: ROOMS }]
+      },
+      'GET /api/dashboard/summary': () => [200, SUMMARY],
+    })
+    renderApp('/')
+    const socket = await connected()
+    await waitFor(() => {
+      expect(requests.rooms).toBe(2)
+    })
+
+    socket.receive({ type: 'permissions_changed', seq: 0, payload: {} })
+
+    expect(await within(screen.getByRole('banner')).findByText('Fran Lead')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(requests.rooms).toBe(3)
+    })
+  })
+
   it('does not open a socket for roles without dashboard access', async () => {
     liveDashboard(ROOM_ATTENDANT_USER)
     await screen.findByRole('banner')

@@ -436,10 +436,89 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Roles
+         * @description Roles at this property with user and permission counts (system roles first).
+         */
+        get: operations["list_roles_api_admin_roles_get"];
+        put?: never;
+        /**
+         * Create Role
+         * @description Create a custom role, optionally starting from another role's permissions.
+         */
+        post: operations["create_role_api_admin_roles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/roles/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Permissions
+         * @description The permission catalog grouped by area, with descriptions.
+         */
+        get: operations["list_permissions_api_admin_roles_permissions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/roles/{role_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Role
+         * @description The role with its permission keys and the users who have it.
+         */
+        get: operations["get_role_api_admin_roles__role_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Role
+         * @description Delete a custom role nobody has.
+         */
+        delete: operations["delete_role_api_admin_roles__role_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Role
+         * @description Change name, description and/or permissions (the list replaces the whole set).
+         */
+        patch: operations["update_role_api_admin_roles__role_id__patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** CatalogPermission */
+        CatalogPermission: {
+            /** Key */
+            key: string;
+            /** Description */
+            description: string;
+        };
         /** CheckInRequest */
         CheckInRequest: {
             /** Room Id */
@@ -620,6 +699,16 @@ export interface components {
          * @enum {string}
          */
         OccupancyStatus: "vacant" | "occupied" | "arriving_today" | "departing_today" | "out_of_order";
+        /**
+         * PermissionGroup
+         * @description One area of the catalog (users, rooms, reservations, ...), in catalog order.
+         */
+        PermissionGroup: {
+            /** Group */
+            group: string;
+            /** Permissions */
+            permissions: components["schemas"]["CatalogPermission"][];
+        };
         /** PropertyRef */
         PropertyRef: {
             /** Id */
@@ -681,12 +770,91 @@ export interface components {
             /** Role Id */
             role_id: number;
         };
+        /** RoleCreate */
+        RoleCreate: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /** Permissions */
+            permissions?: string[];
+            /** Copy From Role Id */
+            copy_from_role_id?: number | null;
+        };
+        /** RoleDetail */
+        RoleDetail: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string | null;
+            /** Is System */
+            is_system: boolean;
+            /** Is Admin */
+            is_admin: boolean;
+            /** User Count */
+            user_count: number;
+            /** Permission Count */
+            permission_count: number;
+            /** Can Edit */
+            can_edit: boolean;
+            /** Can Delete */
+            can_delete: boolean;
+            /** Permissions */
+            permissions: string[];
+            /** Users */
+            users: components["schemas"]["RoleUser"][];
+        };
         /** RoleRef */
         RoleRef: {
             /** Id */
             id: number;
             /** Name */
             name: string;
+        };
+        /** RoleSummary */
+        RoleSummary: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string | null;
+            /** Is System */
+            is_system: boolean;
+            /** Is Admin */
+            is_admin: boolean;
+            /** User Count */
+            user_count: number;
+            /** Permission Count */
+            permission_count: number;
+            /** Can Edit */
+            can_edit: boolean;
+            /** Can Delete */
+            can_delete: boolean;
+        };
+        /**
+         * RoleUpdate
+         * @description Only the fields sent are changed. `permissions` replaces the whole set.
+         */
+        RoleUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Permissions */
+            permissions?: string[] | null;
+        };
+        /** RoleUser */
+        RoleUser: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Full Name */
+            full_name: string;
+            status: components["schemas"]["UserStatus"];
         };
         /** SessionsRevoked */
         SessionsRevoked: {
@@ -2005,6 +2173,282 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LinkIssued"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_roles_api_admin_roles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleSummary"][];
+                };
+            };
+        };
+    };
+    create_role_api_admin_roles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleDetail"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_permissions_api_admin_roles_permissions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PermissionGroup"][];
+                };
+            };
+        };
+    };
+    get_role_api_admin_roles__role_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleDetail"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_role_api_admin_roles__role_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_role_api_admin_roles__role_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleDetail"];
                 };
             };
             /** @description Forbidden */

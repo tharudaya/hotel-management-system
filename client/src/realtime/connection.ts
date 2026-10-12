@@ -39,6 +39,8 @@ export interface RealtimeConnectionOptions {
   onResync: () => void
   /** The server ended the session (logout, expiry): stop and go to login. */
   onUnauthorized: () => void
+  /** This user's permissions changed: refetch the user and permission-dependent data. */
+  onPermissionsChanged?: () => void
   createSocket?: (url: string) => SocketLike
   batchMs?: number
   initialBackoffMs?: number
@@ -75,6 +77,7 @@ export class RealtimeConnection {
       offlineAfterAttempts: 5,
       random: Math.random,
       isOnline: () => (typeof navigator === 'undefined' ? true : navigator.onLine),
+      onPermissionsChanged: () => undefined,
       ...options,
     }
   }
@@ -144,15 +147,24 @@ export class RealtimeConnection {
         return
       case 'ping':
         socket.send(JSON.stringify({ type: 'pong' }))
-        if (message.seq > this.lastSeq) {
-          // The server has broadcast events we never received.
-          this.lastSeq = message.seq
-          this.needsResync = true
-          this.scheduleFlush()
-        }
+        this.checkLatestSeq(message.seq)
+        return
+      case 'permissions_changed':
+        this.options.onPermissionsChanged()
+        this.checkLatestSeq(message.seq)
         return
       default:
         this.receiveEvent(message)
+    }
+  }
+
+  /** For messages that carry the latest seq without consuming one. */
+  private checkLatestSeq(seq: number): void {
+    if (seq > this.lastSeq) {
+      // The server has broadcast events we never received.
+      this.lastSeq = seq
+      this.needsResync = true
+      this.scheduleFlush()
     }
   }
 

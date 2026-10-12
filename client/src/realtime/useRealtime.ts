@@ -2,6 +2,7 @@ import { type QueryClient, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
 
 import { notifyUnauthorized } from '../api/client'
+import { authKeys } from '../auth/queries'
 import { dashboardKeys, reservationKeys } from '../dashboard/queries'
 import { applyEvents } from './cache'
 import {
@@ -48,6 +49,13 @@ export function createCacheConnection(
     },
     onResync: resync,
     onUnauthorized: notifyUnauthorized,
+    onPermissionsChanged: () => {
+      // New permissions change what the UI offers (actions, guest contact details):
+      // refetch the user, then everything permission-dependent.
+      void queryClient.invalidateQueries({ queryKey: authKeys.me })
+      void queryClient.invalidateQueries({ queryKey: reservationKeys.all })
+      resync()
+    },
     ...overrides,
   })
 }

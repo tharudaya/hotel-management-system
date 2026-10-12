@@ -40,6 +40,12 @@ ACCESS: dict[tuple[str, str], str] = {
     ("POST", "/api/admin/users/{user_id}/revoke-sessions"): P.USER_MANAGE,
     ("POST", "/api/admin/users/{user_id}/invite"): P.USER_MANAGE,
     ("POST", "/api/admin/users/{user_id}/reset-password"): P.USER_MANAGE,
+    ("GET", "/api/admin/roles"): P.ROLE_VIEW,
+    ("GET", "/api/admin/roles/permissions"): P.ROLE_VIEW,
+    ("GET", "/api/admin/roles/{role_id}"): P.ROLE_VIEW,
+    ("POST", "/api/admin/roles"): P.ROLE_MANAGE,
+    ("PATCH", "/api/admin/roles/{role_id}"): P.ROLE_MANAGE,
+    ("DELETE", "/api/admin/roles/{role_id}"): P.ROLE_MANAGE,
     ("GET", "/api/auth/activate/{token}"): PUBLIC,
     ("POST", "/api/auth/activate/{token}"): PUBLIC,
     ("GET", "/api/auth/reset-password/{token}"): PUBLIC,
@@ -67,6 +73,7 @@ def concrete(path: str) -> str:
         path.replace("{reservation_id}", "1")
         .replace("{room_id}", "1")
         .replace("{user_id}", "999999")
+        .replace("{role_id}", "999999")
         .replace("{token}", "x" * 43)
     )
 

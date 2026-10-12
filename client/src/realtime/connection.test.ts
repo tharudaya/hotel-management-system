@@ -17,7 +17,7 @@ function summaryEvent(seq: number) {
   return { type: 'summary_changed', seq, payload: { summary: SUMMARY } }
 }
 
-function setup(overrides: { isOnline?: () => boolean } = {}) {
+function setup(overrides: { isOnline?: () => boolean; onPermissionsChanged?: () => void } = {}) {
   const onEvents = vi.fn<(events: RealtimeEvent[]) => void>()
   const onResync = vi.fn()
   const onUnauthorized = vi.fn()
@@ -115,6 +115,28 @@ describe('RealtimeConnection', () => {
     expect(onResync).not.toHaveBeenCalled()
 
     socket.receive({ type: 'ping', seq: 4 })
+    vi.advanceTimersByTime(50)
+    expect(onResync).toHaveBeenCalledOnce()
+  })
+
+  it('reports permissions_changed without consuming a sequence number', () => {
+    const onPermissionsChanged = vi.fn()
+    const { onEvents, onResync } = setup({ onPermissionsChanged })
+    const socket = FakeWebSocket.latest()
+    socket.hello(3)
+    onResync.mockClear()
+
+    socket.receive({ type: 'permissions_changed', seq: 3, payload: {} })
+    socket.receive(summaryEvent(4)) // the next broadcast is still 4: no gap
+    vi.advanceTimersByTime(50)
+
+    expect(onPermissionsChanged).toHaveBeenCalledOnce()
+    expect(socket.sent).toEqual([]) // not a ping: no pong
+    expect(batches(onEvents)).toEqual([[4]])
+    expect(onResync).not.toHaveBeenCalled()
+
+    // Like a ping, a newer seq on it reveals missed broadcasts.
+    socket.receive({ type: 'permissions_changed', seq: 9, payload: {} })
     vi.advanceTimersByTime(50)
     expect(onResync).toHaveBeenCalledOnce()
   })

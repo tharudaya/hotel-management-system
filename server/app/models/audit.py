@@ -27,6 +27,9 @@ class AuditAction(StrEnum):
     USER_PASSWORD_RESET_SENT = "user.password_reset_sent"
     USER_ACTIVATED = "user.activated"
     USER_PASSWORD_RESET = "user.password_reset"
+    ROLE_CREATED = "role.created"
+    ROLE_UPDATED = "role.updated"
+    ROLE_DELETED = "role.deleted"
 
 
 class AuditLog(Base):

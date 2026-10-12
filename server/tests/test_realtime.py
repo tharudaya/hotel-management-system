@@ -497,8 +497,11 @@ async def test_socket_kept_when_permissions_change_but_dashboard_access_remains(
             )
 
             await publish_permissions_changed(app.state.event_bus, property_id, [user_id])
-            await asyncio.sleep(0.2)  # give the re-check time to run
 
+            # Told to refetch what it may see; not a broadcast, so no seq is consumed.
+            message = await receive(ws)
+            assert (message["type"], message["payload"]) == ("permissions_changed", {})
+            assert message["seq"] == app.state.hub.seq
             assert app.state.hub.connection_count == 1
 
 
@@ -531,6 +534,51 @@ async def test_property_wide_change_rechecks_everyone(
 
                 await publish_permissions_changed(app.state.event_bus, property_id, None)
 
+                await expect_close(ws, 4403, "Insufficient permissions")
+    finally:
+        async with live_db() as db:  # roles survive the table truncation; clean up
+            await db.execute(delete(UserPropertyRole).where(UserPropertyRole.role_id == custom_id))
+            await db.execute(delete(Role).where(Role.id == custom_id))
+            await db.commit()
+
+
+async def test_editing_a_role_over_rest_reaches_its_holders_live(
+    test_settings: Settings,
+    seeded: dict[str, int],
+    live_db: async_sessionmaker[AsyncSession],
+) -> None:
+    """PATCH /api/admin/roles/{id}: holders get permissions_changed, then lose access."""
+    async with live_db() as db:
+        property_id = await get_default_property_id(db)
+        custom = Role(property_id=property_id, name="Temporary desk", is_system=False)
+        db.add(custom)
+        await db.flush()
+        db.add(RolePermission(role_id=custom.id, permission_key=P.DASHBOARD_VIEW))
+        await db.commit()
+        custom_id = custom.id
+    try:
+        await change_role(live_db, "frontdesk", "Temporary desk")
+        async with live_clients(test_settings) as live_client_factory:
+            app, front_desk = await live(live_client_factory)
+            _, admin = await live_client_factory(app)
+            await login(admin, Roles.ADMIN)
+
+            async with connect(front_desk) as ws:
+                await receive(ws)
+
+                response = await admin.patch(
+                    f"/api/admin/roles/{custom_id}",
+                    json={"permissions": [P.DASHBOARD_VIEW, P.RESERVATION_VIEW]},
+                )
+                assert response.status_code == 200, response.text
+                assert (await receive(ws))["type"] == "permissions_changed"
+                me = await front_desk.get("/api/auth/me")
+                assert P.RESERVATION_VIEW in me.json()["permissions"]
+
+                response = await admin.patch(
+                    f"/api/admin/roles/{custom_id}", json={"permissions": [P.RESERVATION_VIEW]}
+                )
+                assert response.status_code == 200, response.text
                 await expect_close(ws, 4403, "Insufficient permissions")
     finally:
         async with live_db() as db:  # roles survive the table truncation; clean up

@@ -16,6 +16,12 @@ export interface PingMessage {
   seq: number
 }
 
+/** Sent only to users whose permissions changed (and who keep dashboard access). */
+export interface PermissionsChangedMessage {
+  type: 'permissions_changed'
+  seq: number
+}
+
 export interface RoomStatusChangedMessage {
   type: 'room_status_changed'
   seq: number
@@ -31,7 +37,7 @@ export interface SummaryChangedMessage {
 /** Broadcast events: the only messages that consume a sequence number. */
 export type RealtimeEvent = RoomStatusChangedMessage | SummaryChangedMessage
 
-export type ServerMessage = HelloMessage | PingMessage | RealtimeEvent
+export type ServerMessage = HelloMessage | PingMessage | PermissionsChangedMessage | RealtimeEvent
 
 /** Close codes with meaning to the client. */
 export const CLOSE_UNAUTHENTICATED = 4401
@@ -54,6 +60,7 @@ export function parseServerMessage(text: string): ServerMessage | null {
 
   switch (type) {
     case 'ping':
+    case 'permissions_changed':
       return { type, seq }
     case 'hello':
       if (isRecord(payload) && typeof payload.heartbeat_seconds === 'number') {

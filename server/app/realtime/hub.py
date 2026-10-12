@@ -8,9 +8,13 @@ Wire protocol (server -> client only; the socket never accepts writes):
     room_status_changed  payload {"business_date", "room": <dashboard entry>}
     summary_changed      payload {"summary": <dashboard summary>}
     ping                 heartbeat; payload {}
+    permissions_changed  this user's permissions (or access) changed and they still
+                         have dashboard access; payload {}. Refetch /api/auth/me and
+                         anything whose content depends on permissions.
 
 `seq` increases by one for every broadcast event (room_status_changed,
-summary_changed). hello and ping carry the latest seq without consuming one,
+summary_changed). hello, ping and permissions_changed carry the latest seq
+without consuming one (permissions_changed goes only to the affected users),
 so a client that sees a jump has missed events and should refetch over REST.
 Clients connect first, then fetch the REST snapshot, then apply events.
 
@@ -106,6 +110,7 @@ class Connection:
         self._session_expires_at = session_expires_at
         self._check_access = check_access
         self._recheck_requested = asyncio.Event()
+        self._notify_permissions = False
         self._heartbeat_seconds = heartbeat_seconds
         self._max_pending = max_pending
         self._current_seq = current_seq
@@ -126,8 +131,13 @@ class Connection:
             return
         self._queue.put_nowait(text)
 
-    def recheck(self) -> None:
-        """Re-check access now instead of at the next heartbeat (never blocks)."""
+    def recheck(self, *, notify: bool = False) -> None:
+        """Re-check access now instead of at the next heartbeat (never blocks).
+
+        With notify, a client that keeps access is sent permissions_changed.
+        """
+        if notify:
+            self._notify_permissions = True
         self._recheck_requested.set()
 
     def close(self, code: int, reason: str) -> None:
@@ -202,6 +212,9 @@ class Connection:
             if access is Access.FORBIDDEN:
                 self.close(CLOSE_FORBIDDEN, "Insufficient permissions")
                 return
+            if self._notify_permissions:
+                self._notify_permissions = False
+                self.send(envelope("permissions_changed", self._current_seq(), {}))
             if recheck_only:
                 continue  # not a heartbeat: no ping, no pong bookkeeping
             if time.monotonic() - self._last_pong > 2 * self._heartbeat_seconds:
@@ -245,7 +258,7 @@ class ConnectionManager:
                 if connection.property_id == event.property_id and (
                     affected is None or connection.user_id in affected
                 ):
-                    connection.recheck()
+                    connection.recheck(notify=True)
             return
         self.broadcast(event)
 
