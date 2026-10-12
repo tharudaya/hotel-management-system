@@ -31,10 +31,12 @@ rooms for today, plus one user per role. Dev logins (development only):
 
 | role | username | password |
 |---|---|---|
-| front_desk | frontdesk | frontdesk-dev-pass |
-| housekeeping | housekeeping | housekeeping-dev-pass |
-| manager | manager | manager-dev-pass |
-| admin | admin | admin-dev-pass |
+| Admin | admin | admin-dev-pass |
+| General manager | manager | manager-dev-pass |
+| Front office manager | fomanager | fomanager-dev-pass |
+| Receptionist | frontdesk | frontdesk-dev-pass |
+| Housekeeping supervisor | housekeeping | housekeeping-dev-pass |
+| Room attendant | attendant | attendant-dev-pass |
 
 ## Run
 

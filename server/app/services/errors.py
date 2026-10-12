@@ -31,3 +31,9 @@ class VersionConflictError(DomainError):
     """Someone else changed the row since the client last read it."""
 
     default_code = "version_conflict"
+
+
+class PermissionDeniedError(DomainError):
+    """The user lacks a permission that only the service can check (depends on data)."""
+
+    default_code = "forbidden"

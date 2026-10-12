@@ -1,4 +1,4 @@
-"""Shared FastAPI dependencies: settings, client info, authentication and roles."""
+"""Shared FastAPI dependencies: settings, client info, authentication and permissions."""
 
 from collections.abc import Awaitable, Callable
 from datetime import date
@@ -8,10 +8,12 @@ from fastapi import Depends, HTTPException, Request, status
 
 from app.core.clock import hotel_today
 from app.core.config import Settings
+from app.core.permissions import ALL_PERMISSION_KEYS
 from app.db.session import SessionDep
-from app.models import User, UserRole
+from app.models import User
 from app.realtime.bus import EventBus
 from app.services import auth as auth_service
+from app.services import permissions as permission_service
 from app.services.audit import ClientInfo
 
 
@@ -69,18 +71,41 @@ async def get_current_user(db: SessionDep, settings: SettingsDep, token: Session
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
-def require_role(*roles: UserRole) -> Callable[[User], Awaitable[User]]:
-    """Dependency factory: 401 if not logged in, 403 if the user's role is not allowed.
+async def get_current_property_id(db: SessionDep) -> int:
+    """The property this request acts on (the only one, until rooms are property-scoped)."""
+    return await permission_service.get_default_property_id(db)
+
+
+CurrentPropertyId = Annotated[int, Depends(get_current_property_id)]
+
+
+async def get_current_permissions(
+    db: SessionDep, user: CurrentUser, property_id: CurrentPropertyId
+) -> frozenset[str]:
+    """The current user's effective permissions at the current property (once per request)."""
+    return await permission_service.get_effective_permissions(db, user.id, property_id)
+
+
+CurrentPermissions = Annotated[frozenset[str], Depends(get_current_permissions)]
+
+
+def require_permission(*keys: str) -> Callable[[User, frozenset[str]], Awaitable[User]]:
+    """Dependency factory: 401 if not logged in, 403 unless the user has every key.
+
+    Check permission keys (app/core/permissions.py `P`), never role names.
 
     Usage:
-        @router.get("/x", dependencies=[Depends(require_role(UserRole.MANAGER))])
-        async def x(user: Annotated[User, Depends(require_role(UserRole.ADMIN))]) -> ...
+        @router.get("/x", dependencies=[Depends(require_permission(P.DASHBOARD_VIEW))])
+        async def x(user: Annotated[User, Depends(require_permission(P.USER_MANAGE))]) -> ...
     """
-    allowed = frozenset(roles)
+    unknown = set(keys) - ALL_PERMISSION_KEYS
+    if unknown:
+        raise ValueError(f"Unknown permission keys: {sorted(unknown)}")
+    required = frozenset(keys)
 
-    async def check_role(user: CurrentUser) -> User:
-        if user.role not in allowed:
+    async def check_permissions(user: CurrentUser, permissions: CurrentPermissions) -> User:
+        if not required <= permissions:
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
         return user
 
-    return check_role
+    return check_permissions

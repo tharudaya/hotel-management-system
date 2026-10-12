@@ -1,15 +1,15 @@
 from fastapi import APIRouter, Depends
 
-from app.api.deps import HotelTodayDep, require_role
+from app.api.deps import HotelTodayDep, require_permission
+from app.core.permissions import P
 from app.db.session import SessionDep
-from app.models import UserRole
 from app.schemas.dashboard import DashboardRooms, DashboardSummary
 from app.services import dashboard as dashboard_service
 
 router: APIRouter = APIRouter(
     prefix="/dashboard",
     tags=["dashboard"],
-    dependencies=[Depends(require_role(UserRole.FRONT_DESK, UserRole.MANAGER, UserRole.ADMIN))],
+    dependencies=[Depends(require_permission(P.DASHBOARD_VIEW))],
 )
 
 

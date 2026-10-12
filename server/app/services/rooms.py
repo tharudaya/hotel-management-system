@@ -4,11 +4,12 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import P
 from app.models import AuditEventType, HousekeepingStatus, User
 from app.realtime.bus import EventBus
 from app.schemas.dashboard import DashboardRoom
 from app.services.audit import ClientInfo, record_event
-from app.services.errors import InvalidTransitionError
+from app.services.errors import InvalidTransitionError, PermissionDeniedError
 from app.services.room_changes import commit, ensure_version, load_room, publish_room_changes
 
 HK = HousekeepingStatus
@@ -72,12 +73,18 @@ async def change_housekeeping_status(
     status: HousekeepingStatus,
     expected_version: int,
     actor: User,
+    actor_permissions: frozenset[str],
     client: ClientInfo,
     today: date,
 ) -> DashboardRoom:
     room = await load_room(db, room_id)
-    ensure_version(room, expected_version)
     before = room.housekeeping_status
+    # Taking a room out of service, or returning it, is a separate permission.
+    if HK.OUT_OF_ORDER in (before, status) and P.ROOM_SET_OUT_OF_ORDER not in actor_permissions:
+        raise PermissionDeniedError(
+            "You don't have permission to take rooms out of order or back into service."
+        )
+    ensure_version(room, expected_version)
     validate_housekeeping_transition(before, status)
 
     room.housekeeping_status = status

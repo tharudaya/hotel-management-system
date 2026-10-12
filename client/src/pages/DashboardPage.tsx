@@ -1,6 +1,8 @@
 import { useCallback } from 'react'
 import { useSearchParams } from 'react-router'
 
+import { useAuthenticatedUser } from '../auth/currentUser'
+import { can, P } from '../auth/permissions'
 import { buttonSecondary } from '../components/styles'
 import {
   applyFilters,
@@ -26,6 +28,24 @@ function focusTile(roomId: number) {
 }
 
 export function DashboardPage() {
+  const user = useAuthenticatedUser()
+  if (!can(user, P.DASHBOARD_VIEW)) {
+    return (
+      <section aria-labelledby="no-dashboard" className="rounded-lg bg-white p-8 shadow-sm">
+        <h1 id="no-dashboard" className="text-lg font-semibold text-slate-900">
+          No dashboard access
+        </h1>
+        <p className="mt-2 text-slate-700">
+          Your role ({user.role?.name ?? 'none'}) does not include the front desk dashboard. Ask an
+          administrator if you need it.
+        </p>
+      </section>
+    )
+  }
+  return <Dashboard />
+}
+
+function Dashboard() {
   const rooms = useRooms()
   const summary = useSummary()
   const [params, setParams] = useSearchParams()

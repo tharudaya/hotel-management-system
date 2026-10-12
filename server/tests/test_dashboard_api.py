@@ -17,10 +17,9 @@ from app.models import (
     ReservationStatus,
     Room,
     RoomType,
-    UserRole,
 )
 from app.services.dashboard import get_dashboard_rooms, get_dashboard_summary
-from tests.conftest import LoginAs
+from tests.conftest import LoginAs, Roles
 
 ROOMS: str = "/api/dashboard/rooms"
 SUMMARY: str = "/api/dashboard/summary"
@@ -111,7 +110,7 @@ async def hotel(db_session: AsyncSession) -> dict[str, Room]:
 async def test_rooms_derives_status_for_each_case(
     client: AsyncClient, login_as: LoginAs, hotel: dict[str, Room], fixed_today: date
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
 
     response = await client.get(ROOMS)
 
@@ -146,7 +145,7 @@ async def test_rooms_derives_status_for_each_case(
 async def test_rooms_entry_shape(
     client: AsyncClient, login_as: LoginAs, hotel: dict[str, Room], fixed_today: date
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
 
     body = (await client.get(ROOMS)).json()
 
@@ -173,7 +172,7 @@ async def test_rooms_entry_shape(
 
 
 async def test_rooms_empty_hotel(client: AsyncClient, login_as: LoginAs, fixed_today: date) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
 
     response = await client.get(ROOMS)
 
@@ -187,7 +186,7 @@ async def test_rooms_empty_hotel(client: AsyncClient, login_as: LoginAs, fixed_t
 async def test_summary_counts(
     client: AsyncClient, login_as: LoginAs, hotel: dict[str, Room], fixed_today: date
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
 
     response = await client.get(SUMMARY)
 
@@ -215,7 +214,7 @@ async def test_summary_counts(
 async def test_summary_empty_hotel(
     client: AsyncClient, login_as: LoginAs, fixed_today: date
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
 
     body = (await client.get(SUMMARY)).json()
 
@@ -226,7 +225,7 @@ async def test_summary_empty_hotel(
 async def test_business_date_uses_hotel_time_zone(
     client: AsyncClient, login_as: LoginAs, test_settings: Settings
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
 
     body = (await client.get(SUMMARY)).json()
 
@@ -279,9 +278,9 @@ async def test_summary_query_count_is_constant(
 
 
 @pytest.mark.parametrize("path", [ROOMS, SUMMARY])
-@pytest.mark.parametrize("role", [UserRole.FRONT_DESK, UserRole.MANAGER, UserRole.ADMIN])
+@pytest.mark.parametrize("role", [Roles.RECEPTIONIST, Roles.GENERAL_MANAGER, Roles.ADMIN])
 async def test_allowed_roles(
-    client: AsyncClient, login_as: LoginAs, fixed_today: date, path: str, role: UserRole
+    client: AsyncClient, login_as: LoginAs, fixed_today: date, path: str, role: str
 ) -> None:
     await login_as(role)
 
@@ -290,7 +289,7 @@ async def test_allowed_roles(
 
 @pytest.mark.parametrize("path", [ROOMS, SUMMARY])
 async def test_housekeeping_forbidden(client: AsyncClient, login_as: LoginAs, path: str) -> None:
-    await login_as(UserRole.HOUSEKEEPING)
+    await login_as(Roles.ROOM_ATTENDANT)
 
     response = await client.get(path)
 

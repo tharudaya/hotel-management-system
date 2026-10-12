@@ -11,11 +11,18 @@ import {
   BUSINESS_DATE,
   fixtureRoom,
 } from '../test/fixtures'
-import { FRONT_DESK_USER, mockApi, renderApp } from '../test/renderApp'
+import {
+  FRONT_DESK_USER,
+  HOUSEKEEPING_SUPERVISOR_USER,
+  MANAGER_USER,
+  ROOM_ATTENDANT_USER,
+  mockApi,
+  renderApp,
+} from '../test/renderApp'
 
 type Handler = () => [number, unknown?]
 
-const MANAGER = { ...FRONT_DESK_USER, username: 'manager', full_name: 'Morgan', role: 'manager' }
+const MANAGER = MANAGER_USER
 
 /** Fake backend for the dashboard; `rooms` can be swapped to simulate server-side changes. */
 function dashboardApi(extra: Record<string, Handler> = {}, user: object = FRONT_DESK_USER) {
@@ -355,12 +362,55 @@ describe('room actions', () => {
     )
   })
 
-  it('hides housekeeping changes from front desk', async () => {
+  it('offers front desk housekeeping changes but not out of order', async () => {
     dashboardApi()
     renderApp('/')
 
-    const panel = await openRoom('101')
+    const panel = await openRoom('101') // Ready: dirty or out of order
+
+    const group = within(panel).getByRole('group', { name: 'Housekeeping' })
+    expect(
+      within(group)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Mark dirty'])
+  })
+
+  it('hides out-of-order rooms from roles that cannot return them to service', async () => {
+    dashboardApi()
+    renderApp('/')
+
+    const panel = await openRoom('202') // out of order
 
     expect(within(panel).queryByRole('group', { name: 'Housekeeping' })).not.toBeInTheDocument()
+  })
+
+  it('shows housekeeping supervisors no reservation details or guest actions', async () => {
+    dashboardApi({}, HOUSEKEEPING_SUPERVISOR_USER)
+    renderApp('/')
+
+    const panel = await openRoom('201') // departing guest, dirty
+
+    expect(panel).toHaveTextContent(
+      'Alan Turing is booked in this room. Your role does not include reservation details.',
+    )
+    expect(within(panel).queryByRole('button', { name: /Check/ })).not.toBeInTheDocument()
+    const group = within(panel).getByRole('group', { name: 'Housekeeping' })
+    expect(
+      within(group)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Start cleaning', 'Send to inspection', 'Mark out of order'])
+  })
+
+  it('tells roles without dashboard access instead of failing', async () => {
+    mockApi({
+      'GET /api/auth/me': () => [200, ROOM_ATTENDANT_USER],
+      'GET /api/hotel': () => [200, HOTEL],
+    })
+    renderApp('/')
+
+    expect(await screen.findByRole('heading', { name: 'No dashboard access' })).toBeInTheDocument()
+    expect(screen.getByText(/Your role \(Room attendant\)/)).toBeInTheDocument()
   })
 })

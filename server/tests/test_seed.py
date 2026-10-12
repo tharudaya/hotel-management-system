@@ -3,8 +3,9 @@ from datetime import date
 from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import DEFAULT_ROLES
 from app.core.security import verify_password
-from app.models import Reservation, ReservationStatus, Room, User, UserRole
+from app.models import Reservation, ReservationStatus, Role, Room, User, UserPropertyRole
 from app.scripts.seed import dev_password, seed_dev_data
 
 TODAY: date = date(2026, 1, 15)
@@ -35,7 +36,13 @@ async def test_seed_creates_dashboard_mix(db_session: AsyncSession) -> None:
 async def test_seed_creates_one_user_per_role_with_dev_password(db_session: AsyncSession) -> None:
     await seed_dev_data(db_session, TODAY)
 
-    users = (await db_session.scalars(select(User))).all()
+    rows = (
+        await db_session.execute(
+            select(User, Role.name)
+            .join(UserPropertyRole, UserPropertyRole.user_id == User.id)
+            .join(Role, Role.id == UserPropertyRole.role_id)
+        )
+    ).all()
 
-    assert {u.role for u in users} == set(UserRole)
-    assert all(verify_password(dev_password(u.username), u.password_hash) for u in users)
+    assert sorted(role for _, role in rows) == sorted(r.name for r in DEFAULT_ROLES)
+    assert all(verify_password(dev_password(u.username), u.password_hash) for u, _ in rows)

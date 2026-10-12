@@ -8,9 +8,9 @@ import axe from 'axe-core'
 import { describe, expect, it } from 'vitest'
 
 import { dashboardHandlers, makeReservation } from './test/fixtures'
-import { FRONT_DESK_USER, mockApi, renderApp } from './test/renderApp'
+import { FRONT_DESK_USER, MANAGER_USER, mockApi, renderApp } from './test/renderApp'
 
-const MANAGER = { ...FRONT_DESK_USER, username: 'manager', full_name: 'Morgan', role: 'manager' }
+const MANAGER = MANAGER_USER
 
 async function expectNoViolations() {
   const results = await axe.run(document.body, {

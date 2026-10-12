@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Response, status
 
 from app.api.deps import (
     ClientInfoDep,
+    CurrentPropertyId,
     CurrentUser,
     EventBusDep,
     SessionTokenDep,
@@ -11,6 +12,7 @@ from app.core.config import Settings
 from app.db.session import SessionDep
 from app.schemas.auth import LoginRequest, UserOut
 from app.services import auth as auth_service
+from app.services import permissions as permission_service
 
 router: APIRouter = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -54,6 +56,7 @@ async def login(
     bus: EventBusDep,
     client: ClientInfoDep,
     previous_token: SessionTokenDep,
+    property_id: CurrentPropertyId,
 ) -> UserOut:
     try:
         result = await auth_service.login(
@@ -75,7 +78,7 @@ async def login(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=INVALID_CREDENTIALS) from None
 
     _set_session_cookie(response, settings, result.token)
-    return UserOut.model_validate(result.user)
+    return await permission_service.describe_user(db, result.user, property_id)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -94,5 +97,6 @@ async def logout(
 
 
 @router.get("/me", responses={status.HTTP_401_UNAUTHORIZED: {"description": "Not authenticated"}})
-async def me(user: CurrentUser) -> UserOut:
-    return UserOut.model_validate(user)
+async def me(user: CurrentUser, db: SessionDep, property_id: CurrentPropertyId) -> UserOut:
+    """The signed-in user with their role and permissions at the current property."""
+    return await permission_service.describe_user(db, user, property_id)

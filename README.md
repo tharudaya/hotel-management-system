@@ -55,12 +55,17 @@ Don't run both this and the Docker apps at once: they use the same ports.
 Created by the seed script, **for development only** (the script refuses to run when
 `ENVIRONMENT=production`):
 
-| Role         | Username       | Password                | Can do                                         |
-| ------------ | -------------- | ----------------------- | ---------------------------------------------- |
-| Front desk   | `frontdesk`    | `frontdesk-dev-pass`    | Dashboard, check in, check out                 |
-| Manager      | `manager`      | `manager-dev-pass`      | Everything front desk can, plus housekeeping   |
-| Admin        | `admin`        | `admin-dev-pass`        | Same as manager                                |
-| Housekeeping | `housekeeping` | `housekeeping-dev-pass` | Housekeeping status API only (no dashboard UI) |
+| Role                    | Username       | Password                | Can do                                                                         |
+| ----------------------- | -------------- | ----------------------- | ------------------------------------------------------------------------------ |
+| Admin                   | `admin`        | `admin-dev-pass`        | Everything                                                                     |
+| General manager         | `manager`      | `manager-dev-pass`      | Everything except property settings                                            |
+| Front office manager    | `fomanager`    | `fomanager-dev-pass`    | Dashboard, rooms (incl. out of order), reservations, guests, payments, reports |
+| Receptionist            | `frontdesk`    | `frontdesk-dev-pass`    | Dashboard, check in/out, housekeeping status (not out of order)                |
+| Housekeeping supervisor | `housekeeping` | `housekeeping-dev-pass` | Dashboard (no reservation details), housekeeping incl. out of order            |
+| Room attendant          | `attendant`    | `attendant-dev-pass`    | Housekeeping status via the API (no dashboard)                                 |
+
+Roles are bundles of permissions stored per property; see "Users and permissions" in
+`CLAUDE.md`. The permission catalog is in `server/app/core/permissions.py`.
 
 The seed creates 40 rooms on 4 floors with today's arrivals, departures, stayovers, a
 turnover room (departure and arrival on the same day), vacant and out-of-order rooms.
@@ -103,8 +108,10 @@ guest out in one session and requires the other to see it within one second.
 - **Auth.** Username and password (Argon2 hashes) create a server-side session. The cookie
   carries only a random token; the database stores its HMAC. Sessions can be revoked, and
   logging out closes that session's WebSockets. Failed logins are rate limited and audited.
-- **Roles are enforced on the server** for every route (a test lists who may call each
-  operation and fails if a new endpoint isn't classified). The client only hides UI.
+- **Permissions are enforced on the server** for every route. Users get a role per
+  property; roles are database bundles of permissions from a catalog defined in code. A
+  test lists the permission each operation needs and fails if a new endpoint isn't
+  classified. The client only hides UI.
 - **Reads.** `GET /api/dashboard/rooms` and `/summary` derive each room's occupancy
   (vacant, occupied, arriving today, departing today, out of order) from reservations, for
   the hotel's business date, in a fixed number of queries.
@@ -150,10 +157,11 @@ most important: `DATABASE_URL`, `SESSION_SECRET`, `SESSION_COOKIE_SECURE`, `CORS
    throttling and audit) are correct behind a proxy.
 3. **Unassigned arrivals can't be checked in from the dashboard.** They are counted in the
    summary but have no tile; a "today's arrivals" list with room assignment is needed.
-4. **No user management.** Users exist only via the seed script; there is no UI or API to
-   create users, reset passwords or revoke sessions, and no password policy.
-5. **Housekeeping role has no UI.** Housekeeping can use the API but the dashboard is for
-   front desk roles; a housekeeping view is a natural next feature.
+4. **No user management yet.** Roles, permissions and per-property assignments exist in
+   the database, but users are still created only by the seed script; there is no API or
+   UI to manage users or roles, reset passwords or revoke sessions, and no password policy.
+5. **Room attendants have no UI.** They can use the API but lack `dashboard.view`; a
+   housekeeping view is a natural next feature.
 6. **Expired sessions and audit rows are never purged.** Add a periodic cleanup job and a
    retention policy for `audit_events` (it contains IP addresses).
 7. **Early check-out keeps the booked dates**, so it is not counted in "departures today".

@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.router import api_router
 from app.api.routes import realtime
@@ -18,7 +19,10 @@ from app.core.security_middleware import SecurityMiddleware
 from app.db.session import create_engine, create_session_factory
 from app.realtime.bus import EventBus
 from app.realtime.hub import ConnectionManager
-from app.services.errors import DomainError, NotFoundError
+from app.services.errors import DomainError, NotFoundError, PermissionDeniedError
+from app.services.permissions import sync_permission_catalog
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -29,6 +33,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine = create_engine(settings.database_url)
         app.state.session_factory = create_session_factory(engine)
+        # Make the permissions table match the code catalog (app/core/permissions.py).
+        # A database outage must not stop the app from starting (and /api/health from
+        # reporting it); access checks use the code catalog either way.
+        try:
+            async with app.state.session_factory() as db:
+                await sync_permission_catalog(db)
+        except SQLAlchemyError, OSError:
+            logger.exception("Permission catalog sync failed; continuing")
         try:
             yield
         finally:
@@ -69,13 +81,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(DomainError)
     async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
-        # Not found -> 404; every other business-rule rejection -> 409 Conflict.
-        # "code" lets clients react without parsing the message.
-        status_code = (
-            status.HTTP_404_NOT_FOUND
-            if isinstance(exc, NotFoundError)
-            else status.HTTP_409_CONFLICT
-        )
+        # Not found -> 404, missing permission -> 403, any other business-rule
+        # rejection -> 409 Conflict. "code" lets clients react without parsing text.
+        if isinstance(exc, NotFoundError):
+            status_code = status.HTTP_404_NOT_FOUND
+        elif isinstance(exc, PermissionDeniedError):
+            status_code = status.HTTP_403_FORBIDDEN
+        else:
+            status_code = status.HTTP_409_CONFLICT
         return JSONResponse({"detail": exc.message, "code": exc.code}, status_code=status_code)
 
     return app

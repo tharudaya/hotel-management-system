@@ -5,6 +5,7 @@ import { RouterProvider } from 'react-router/dom'
 import { vi } from 'vitest'
 
 import { setUnauthorizedHandler } from '../api/client'
+import type { User } from '../api/types'
 import { createQueryClient } from '../queryClient'
 import { routes } from '../routes'
 
@@ -44,9 +45,61 @@ export function renderApp(path: string) {
   return router
 }
 
-export const FRONT_DESK_USER = {
+// Users as /api/auth/me returns them, mirroring the default roles on the server.
+const RECEPTIONIST_PERMISSIONS = [
+  'dashboard.view',
+  'guest.view',
+  'guest.view_contact',
+  'payment.view',
+  'reservation.check_in',
+  'reservation.check_out',
+  'reservation.create',
+  'reservation.modify',
+  'reservation.view',
+  'room.update_housekeeping_status',
+]
+
+const ALL_PERMISSIONS = [
+  ...RECEPTIONIST_PERMISSIONS,
+  'audit.view',
+  'payment.refund',
+  'report.view',
+  'reservation.cancel',
+  'role.manage',
+  'role.view',
+  'room.set_out_of_order',
+  'user.manage',
+  'user.view',
+].sort()
+
+export const FRONT_DESK_USER: User = {
   id: 1,
   username: 'frontdesk',
   full_name: 'Fran Desk',
-  role: 'front_desk',
-} as const
+  role: { id: 4, name: 'Receptionist' },
+  permissions: RECEPTIONIST_PERMISSIONS,
+}
+
+export const MANAGER_USER: User = {
+  id: 2,
+  username: 'manager',
+  full_name: 'Morgan',
+  role: { id: 2, name: 'General manager' },
+  permissions: ALL_PERMISSIONS,
+}
+
+export const HOUSEKEEPING_SUPERVISOR_USER: User = {
+  id: 3,
+  username: 'housekeeping',
+  full_name: 'Harper Keeping',
+  role: { id: 5, name: 'Housekeeping supervisor' },
+  permissions: ['dashboard.view', 'room.set_out_of_order', 'room.update_housekeeping_status'],
+}
+
+export const ROOM_ATTENDANT_USER: User = {
+  id: 4,
+  username: 'attendant',
+  full_name: 'Ari Attendant',
+  role: { id: 6, name: 'Room attendant' },
+  permissions: ['room.update_housekeeping_status'],
+}

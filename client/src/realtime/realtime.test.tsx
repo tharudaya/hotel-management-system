@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { BUSINESS_DATE, fixtureRoom, HOTEL, ROOMS, SUMMARY } from '../test/fixtures'
 import { FakeWebSocket } from '../test/fakeWebSocket'
-import { FRONT_DESK_USER, mockApi, renderApp } from '../test/renderApp'
+import { FRONT_DESK_USER, ROOM_ATTENDANT_USER, mockApi, renderApp } from '../test/renderApp'
 
 function liveDashboard(user: object = FRONT_DESK_USER) {
   const requests = { rooms: 0, summary: 0 }
@@ -126,7 +126,7 @@ describe('live dashboard', () => {
   })
 
   it('does not open a socket for roles without dashboard access', async () => {
-    liveDashboard({ ...FRONT_DESK_USER, username: 'housekeeping', role: 'housekeeping' })
+    liveDashboard(ROOM_ATTENDANT_USER)
     await screen.findByRole('banner')
 
     expect(FakeWebSocket.instances).toHaveLength(0)

@@ -1,7 +1,7 @@
 import { Outlet, useNavigate } from 'react-router'
 
 import { useAuthenticatedUser } from '../auth/currentUser'
-import { canViewDashboard } from '../auth/roles'
+import { can, P } from '../auth/permissions'
 import { useLogout } from '../auth/queries'
 import { useHotelInfo } from '../dashboard/queries'
 import { formatDate } from '../lib/format'
@@ -9,20 +9,13 @@ import { ConnectionIndicator } from '../realtime/ConnectionIndicator'
 import { useRealtime } from '../realtime/useRealtime'
 import { buttonSecondary } from './styles'
 
-const ROLE_LABELS: Record<string, string> = {
-  front_desk: 'Front desk',
-  housekeeping: 'Housekeeping',
-  manager: 'Manager',
-  admin: 'Admin',
-}
-
 /** Shell for signed-in pages: header with the user and a sign-out button. */
 export function AppLayout() {
   const user = useAuthenticatedUser()
   const navigate = useNavigate()
   const logout = useLogout()
   const hotel = useHotelInfo()
-  const realtimeStatus = useRealtime(canViewDashboard(user.role))
+  const realtimeStatus = useRealtime(can(user, P.DASHBOARD_VIEW))
 
   function handleLogout() {
     logout.mutate(undefined, {
@@ -65,7 +58,7 @@ export function AppLayout() {
             {realtimeStatus && <ConnectionIndicator status={realtimeStatus} />}
             <p className="text-right text-sm leading-tight">
               <span className="block font-medium text-slate-900">{user.full_name}</span>
-              <span className="block text-slate-500">{ROLE_LABELS[user.role] ?? user.role}</span>
+              <span className="block text-slate-500">{user.role?.name ?? 'No role'}</span>
             </p>
             <button
               type="button"

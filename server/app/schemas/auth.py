@@ -1,6 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field
-
-from app.models import UserRole
+from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
@@ -9,10 +7,18 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=1024)
 
 
+class RoleRef(BaseModel):
+    id: int
+    name: str
+
+
 class UserOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """The signed-in user at the current property, as the client needs it."""
 
     id: int
     username: str
     full_name: str
-    role: UserRole
+    # None if the user has no role at this property (then permissions is empty).
+    role: RoleRef | None
+    # Sorted permission keys. For showing/hiding UI only: the server checks every request.
+    permissions: list[str]

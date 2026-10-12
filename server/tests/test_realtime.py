@@ -29,11 +29,17 @@ from app.models import (
     Room,
     RoomType,
     User,
-    UserRole,
     UserSession,
 )
 from app.realtime.hub import Connection
-from tests.conftest import LiveClientFactory, cached_password_hash, live_clients
+from tests.conftest import (
+    USERNAME_FOR_ROLE,
+    LiveClientFactory,
+    Roles,
+    assign_role,
+    cached_password_hash,
+    live_clients,
+)
 
 TODAY: date = date(2026, 3, 10)
 WS_URL: str = "https://test/ws"
@@ -41,18 +47,17 @@ WS_URL: str = "https://test/ws"
 
 @pytest.fixture
 async def seeded(live_db: async_sessionmaker[AsyncSession]) -> dict[str, int]:
-    """Users for every role, one in-house guest in room 101 and a dirty room 102."""
+    """A user per default role, one in-house guest in room 101 and a dirty room 102."""
     async with live_db() as db:
-        for role in UserRole:
-            username = role.value.replace("_", "")
-            db.add(
-                User(
-                    username=username,
-                    password_hash=cached_password_hash(f"{username}-password"),
-                    full_name=username.title(),
-                    role=role,
-                )
+        for role_name, username in USERNAME_FOR_ROLE.items():
+            user = User(
+                username=username,
+                password_hash=cached_password_hash(f"{username}-password"),
+                full_name=username.title(),
             )
+            db.add(user)
+            await db.flush()
+            await assign_role(db, user, role_name)
         std = RoomType(code="STD", name="Standard", max_occupancy=2)
         room_101 = Room(
             number="101", floor=1, room_type=std, housekeeping_status=HousekeepingStatus.CLEAN
@@ -74,8 +79,8 @@ async def seeded(live_db: async_sessionmaker[AsyncSession]) -> dict[str, int]:
         return {"room_101": room_101.id, "room_102": room_102.id, "reservation": guest.id}
 
 
-async def login(client: AsyncClient, role: UserRole) -> None:
-    username = role.value.replace("_", "")
+async def login(client: AsyncClient, role: str) -> None:
+    username = USERNAME_FOR_ROLE[role]
     response = await client.post(
         "/api/auth/login", json={"username": username, "password": f"{username}-password"}
     )
@@ -83,7 +88,7 @@ async def login(client: AsyncClient, role: UserRole) -> None:
 
 
 async def live(
-    make: LiveClientFactory, role: UserRole | None = UserRole.FRONT_DESK, **settings: object
+    make: LiveClientFactory, role: str | None = Roles.RECEPTIONIST, **settings: object
 ) -> tuple[FastAPI, AsyncClient]:
     app, client = await make(**settings)
     app.dependency_overrides[get_hotel_today] = lambda: TODAY
@@ -131,19 +136,18 @@ async def test_check_out_over_rest_is_pushed_to_websocket(
 
         async with connect(client) as ws:
             hello = await receive(ws)
-            assert hello == {
-                "type": "hello",
-                "seq": 0,
-                "payload": {
-                    "user": {
-                        "id": 1,
-                        "username": "frontdesk",
-                        "full_name": "Frontdesk",
-                        "role": "front_desk",
-                    },
-                    "heartbeat_seconds": 25.0,
-                },
-            }
+            user = hello["payload"]["user"]
+            assert (hello["type"], hello["seq"], hello["payload"]["heartbeat_seconds"]) == (
+                "hello",
+                0,
+                25.0,
+            )
+            assert (user["username"], user["full_name"], user["role"]["name"]) == (
+                "frontdesk",
+                "Frontdesk",
+                "Receptionist",
+            )
+            assert "dashboard.view" in user["permissions"]
 
             response = await client.post(
                 f"/api/reservations/{seeded['reservation']}/check-out", json={"room_version": 1}
@@ -172,9 +176,9 @@ async def test_sequence_numbers_increase_across_events_and_clients(
     async with live_clients(test_settings) as live_client_factory:
         app, front_desk = await live(live_client_factory)
         _, manager = await live_client_factory(app)
-        await login(manager, UserRole.MANAGER)
+        await login(manager, Roles.GENERAL_MANAGER)
         _, housekeeper = await live_client_factory(app)
-        await login(housekeeper, UserRole.HOUSEKEEPING)
+        await login(housekeeper, Roles.ROOM_ATTENDANT)
 
         async with connect(front_desk) as ws_a, connect(manager) as ws_b:
             await receive(ws_a)
@@ -245,21 +249,30 @@ async def test_rejects_role_without_dashboard_access(
     test_settings: Settings, seeded: dict[str, int]
 ) -> None:
     async with live_clients(test_settings) as live_client_factory:
-        _, client = await live(live_client_factory, role=UserRole.HOUSEKEEPING)
+        _, client = await live(live_client_factory, role=Roles.ROOM_ATTENDANT)
 
         async with connect(client) as ws:
             await expect_close(ws, 4403, "Insufficient permissions")
 
 
-@pytest.mark.parametrize("role", [UserRole.FRONT_DESK, UserRole.MANAGER, UserRole.ADMIN])
+@pytest.mark.parametrize(
+    "role",
+    [
+        Roles.ADMIN,
+        Roles.GENERAL_MANAGER,
+        Roles.FRONT_OFFICE_MANAGER,
+        Roles.RECEPTIONIST,
+        Roles.HOUSEKEEPING_SUPERVISOR,
+    ],
+)
 async def test_accepts_dashboard_roles(
-    test_settings: Settings, seeded: dict[str, int], role: UserRole
+    test_settings: Settings, seeded: dict[str, int], role: str
 ) -> None:
     async with live_clients(test_settings) as live_client_factory:
         _, client = await live(live_client_factory, role=role)
 
         async with connect(client) as ws:
-            assert (await receive(ws))["payload"]["user"]["role"] == role.value
+            assert (await receive(ws))["payload"]["user"]["role"]["name"] == role
 
 
 async def test_rejects_foreign_origin_before_upgrade(test_settings: Settings) -> None:
@@ -327,7 +340,7 @@ async def test_logout_only_closes_that_sessions_sockets(
     async with live_clients(test_settings) as live_client_factory:
         app, leaving = await live(live_client_factory)
         _, staying = await live_client_factory(app)
-        await login(staying, UserRole.MANAGER)
+        await login(staying, Roles.GENERAL_MANAGER)
 
         async with connect(leaving) as ws_leaving, connect(staying) as ws_staying:
             await receive(ws_leaving)
@@ -390,7 +403,9 @@ async def test_deactivated_user_socket_closed_on_next_heartbeat(
             await receive(ws)
             async with live_db() as db:
                 await db.execute(
-                    update(User).where(User.username == "frontdesk").values(is_active=False)
+                    update(User)
+                    .where(User.username == "frontdesk")
+                    .values(deactivated_at=datetime.now(UTC))
                 )
                 await db.commit()
 

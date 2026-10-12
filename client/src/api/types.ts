@@ -4,7 +4,7 @@ import type { components } from './schema'
 type Schemas = components['schemas']
 
 export type User = Schemas['UserOut']
-export type UserRole = Schemas['UserRole']
+export type RoleRef = Schemas['RoleRef']
 export type LoginRequest = Schemas['LoginRequest']
 export type HealthResponse = Schemas['HealthResponse']
 export type DashboardRoom = Schemas['DashboardRoom']

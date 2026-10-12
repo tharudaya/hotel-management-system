@@ -16,7 +16,6 @@ from app.models import (
     Room,
     RoomType,
     User,
-    UserRole,
 )
 
 TODAY: date = date(2026, 1, 15)
@@ -157,7 +156,7 @@ async def test_room_number_unique(db_session: AsyncSession, room: Room) -> None:
 async def test_username_must_be_lowercase(db_session: AsyncSession) -> None:
     await assert_rejected(
         db_session,
-        User(username="Alice", password_hash="x", full_name="Alice", role=UserRole.FRONT_DESK),
+        User(username="Alice", password_hash="x", full_name="Alice"),
         "ck_users_username_lowercase",
     )
 

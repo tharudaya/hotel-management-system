@@ -8,6 +8,7 @@ import asyncio
 import functools
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
+from datetime import UTC, datetime
 
 import pytest
 from alembic import command
@@ -15,7 +16,7 @@ from alembic.config import Config
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from httpx_ws.transport import ASGIWebSocketTransport
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -23,7 +24,9 @@ from app.core.config import SERVER_DIR, Settings, get_settings
 from app.core.security import hash_password
 from app.db.session import create_engine, create_session_factory, get_session
 from app.main import create_app
-from app.models import User, UserRole
+from app.models import Role, User, UserPropertyRole
+from app.scripts.seed import DEV_USERS
+from app.services.permissions import get_default_property_id
 
 
 @functools.cache
@@ -142,43 +145,87 @@ async def db_session(test_settings: Settings) -> AsyncIterator[AsyncSession]:
         await engine.dispose()
 
 
+class Roles:
+    """Names of the default system roles created by the migration."""
+
+    ADMIN = "Admin"
+    GENERAL_MANAGER = "General manager"
+    FRONT_OFFICE_MANAGER = "Front office manager"
+    RECEPTIONIST = "Receptionist"
+    HOUSEKEEPING_SUPERVISOR = "Housekeeping supervisor"
+    ROOM_ATTENDANT = "Room attendant"
+
+
+# Same usernames as the dev seed, so tests read like the real accounts.
+USERNAME_FOR_ROLE: dict[str, str] = {role: username for username, _, role in DEV_USERS}
+
+
+async def role_id(db: AsyncSession, role_name: str) -> int:
+    """Id of a role at the default property."""
+    property_id = await get_default_property_id(db)
+    found = await db.scalar(
+        select(Role.id).where(Role.property_id == property_id, Role.name == role_name)
+    )
+    if found is None:
+        raise LookupError(f"No role {role_name!r}")
+    return found
+
+
+async def assign_role(db: AsyncSession, user: User, role_name: str) -> None:
+    db.add(
+        UserPropertyRole(
+            user_id=user.id,
+            property_id=await get_default_property_id(db),
+            role_id=await role_id(db, role_name),
+        )
+    )
+    await db.flush()
+
+
 type MakeUser = Callable[..., Awaitable[User]]
 
 
 @pytest.fixture
 def make_user(db_session: AsyncSession) -> MakeUser:
-    """Create a user; the password is "<username>-password" unless given."""
+    """Create a user with a role at the default property.
+
+    The password is "<username>-password" unless given; `role=None` creates a user
+    without any role.
+    """
 
     async def make(
         username: str = "frontdesk",
         *,
         password: str | None = None,
-        role: UserRole = UserRole.FRONT_DESK,
-        is_active: bool = True,
+        role: str | None = Roles.RECEPTIONIST,
+        deactivated: bool = False,
+        expires_at: datetime | None = None,
     ) -> User:
         user = User(
             username=username,
             password_hash=cached_password_hash(password or f"{username}-password"),
             full_name=username.title(),
-            role=role,
-            is_active=is_active,
+            deactivated_at=datetime.now(UTC) if deactivated else None,
+            expires_at=expires_at,
         )
         db_session.add(user)
         await db_session.flush()
+        if role is not None:
+            await assign_role(db_session, user, role)
         return user
 
     return make
 
 
-type LoginAs = Callable[[UserRole], Awaitable[User]]
+type LoginAs = Callable[[str], Awaitable[User]]
 
 
 @pytest.fixture
 def login_as(client: AsyncClient, make_user: MakeUser) -> LoginAs:
-    """Create a user with the given role and log the test client in as them."""
+    """Create a user with the given role (see Roles) and log the test client in."""
 
-    async def login(role: UserRole) -> User:
-        username = role.value.replace("_", "")
+    async def login(role: str) -> User:
+        username = USERNAME_FOR_ROLE[role]
         user = await make_user(username, role=role)
         response = await client.post(
             "/api/auth/login", json={"username": username, "password": f"{username}-password"}
@@ -196,7 +243,10 @@ def login_as(client: AsyncClient, make_user: MakeUser) -> LoginAs:
 # requests run, and opens its own database sessions, so those tests need data that
 # is really committed. These fixtures provide that and empty the tables afterwards.
 
-ALL_TABLES: str = "audit_events, sessions, reservations, guests, rooms, room_types, users"
+# Properties, roles and permissions come from the migration and are kept.
+ALL_TABLES: str = (
+    "audit_events, sessions, user_property_roles, reservations, guests, rooms, room_types, users"
+)
 
 
 @pytest.fixture

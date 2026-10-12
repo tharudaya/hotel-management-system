@@ -62,7 +62,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Me */
+        /**
+         * Me
+         * @description The signed-in user with their role and permissions at the current property.
+         */
         get: operations["me_api_auth_me_get"];
         put?: never;
         post?: never;
@@ -133,7 +136,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Reservation */
+        /**
+         * Get Reservation
+         * @description Guest email and phone are included only with guest.view_contact.
+         */
         get: operations["get_reservation_api_reservations__reservation_id__get"];
         put?: never;
         post?: never;
@@ -199,6 +205,8 @@ export interface paths {
         /**
          * Update Housekeeping Status
          * @description Change housekeeping status (allowed transitions only). Returns the updated entry.
+         *
+         *     Moving a room into or out of "out of order" also needs room.set_out_of_order.
          */
         patch: operations["update_housekeeping_status_api_rooms__room_id__housekeeping_status_patch"];
         trace?: never;
@@ -399,7 +407,17 @@ export interface components {
          * @enum {string}
          */
         ReservationStatus: "confirmed" | "checked_in" | "checked_out" | "cancelled" | "no_show";
-        /** UserOut */
+        /** RoleRef */
+        RoleRef: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+        };
+        /**
+         * UserOut
+         * @description The signed-in user at the current property, as the client needs it.
+         */
         UserOut: {
             /** Id */
             id: number;
@@ -407,13 +425,10 @@ export interface components {
             username: string;
             /** Full Name */
             full_name: string;
-            role: components["schemas"]["UserRole"];
+            role: components["schemas"]["RoleRef"] | null;
+            /** Permissions */
+            permissions: string[];
         };
-        /**
-         * UserRole
-         * @enum {string}
-         */
-        UserRole: "front_desk" | "housekeeping" | "manager" | "admin";
         /** ValidationError */
         ValidationError: {
             /** Location */

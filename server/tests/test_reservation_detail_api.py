@@ -7,8 +7,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_hotel_today
 from app.core.config import Settings
-from app.models import Guest, Reservation, ReservationStatus, Room, RoomType, UserRole
-from tests.conftest import LoginAs
+from app.core.permissions import P
+from app.models import (
+    Guest,
+    Reservation,
+    ReservationStatus,
+    Role,
+    RolePermission,
+    Room,
+    RoomType,
+    UserPropertyRole,
+)
+from app.services.permissions import get_default_property_id
+from tests.conftest import USERNAME_FOR_ROLE, LoginAs, MakeUser, Roles
 
 
 @pytest.fixture
@@ -37,7 +48,7 @@ async def reservation(db_session: AsyncSession) -> Reservation:
 async def test_reservation_detail(
     client: AsyncClient, login_as: LoginAs, reservation: Reservation
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
 
     response = await client.get(f"/api/reservations/{reservation.id}")
 
@@ -69,7 +80,7 @@ async def test_reservation_detail(
 async def test_reservation_detail_without_room(
     client: AsyncClient, login_as: LoginAs, reservation: Reservation, db_session: AsyncSession
 ) -> None:
-    await login_as(UserRole.MANAGER)
+    await login_as(Roles.GENERAL_MANAGER)
     reservation.status = ReservationStatus.CONFIRMED
     reservation.room = None
     await db_session.flush()
@@ -80,7 +91,7 @@ async def test_reservation_detail_without_room(
 
 
 async def test_reservation_detail_not_found(client: AsyncClient, login_as: LoginAs) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
 
     response = await client.get("/api/reservations/999999")
 
@@ -91,7 +102,7 @@ async def test_reservation_detail_not_found(client: AsyncClient, login_as: Login
 async def test_reservation_detail_forbidden_for_housekeeping(
     client: AsyncClient, login_as: LoginAs, reservation: Reservation
 ) -> None:
-    await login_as(UserRole.HOUSEKEEPING)
+    await login_as(Roles.ROOM_ATTENDANT)
 
     assert (await client.get(f"/api/reservations/{reservation.id}")).status_code == 403
 
@@ -105,9 +116,9 @@ async def test_reservation_detail_requires_login(
 # --- /api/hotel ------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("role", list(UserRole))
+@pytest.mark.parametrize("role", list(USERNAME_FOR_ROLE))
 async def test_hotel_info_for_any_signed_in_user(
-    client: AsyncClient, login_as: LoginAs, app: FastAPI, test_settings: Settings, role: UserRole
+    client: AsyncClient, login_as: LoginAs, app: FastAPI, test_settings: Settings, role: str
 ) -> None:
     app.dependency_overrides[get_hotel_today] = lambda: date(2026, 3, 10)
     await login_as(role)
@@ -124,3 +135,25 @@ async def test_hotel_info_for_any_signed_in_user(
 
 async def test_hotel_info_requires_login(client: AsyncClient) -> None:
     assert (await client.get("/api/hotel")).status_code == 401
+
+
+async def test_contact_details_need_guest_view_contact(
+    client: AsyncClient,
+    make_user: MakeUser,
+    reservation: Reservation,
+    db_session: AsyncSession,
+) -> None:
+    # A custom role that may view reservations but not guests' contact details.
+    property_id = await get_default_property_id(db_session)
+    role = Role(property_id=property_id, name="Night porter")
+    db_session.add(role)
+    await db_session.flush()
+    db_session.add(RolePermission(role_id=role.id, permission_key=P.RESERVATION_VIEW))
+    user = await make_user("porter", role=None)
+    db_session.add(UserPropertyRole(user_id=user.id, property_id=property_id, role_id=role.id))
+    await db_session.flush()
+    await client.post("/api/auth/login", json={"username": "porter", "password": "porter-password"})
+
+    guest = (await client.get(f"/api/reservations/{reservation.id}")).json()["guest"]
+
+    assert guest == {"first_name": "Ada", "last_name": "Lovelace", "email": None, "phone": None}

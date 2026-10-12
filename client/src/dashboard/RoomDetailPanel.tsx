@@ -2,6 +2,8 @@ import { X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
 import type { DashboardRoom } from '../api/types'
+import { useAuthenticatedUser } from '../auth/currentUser'
+import { can, P } from '../auth/permissions'
 import { buttonSecondary } from '../components/styles'
 import { plural } from '../lib/format'
 import { ReservationDetails } from './ReservationDetails'
@@ -18,6 +20,7 @@ interface RoomDetailPanelProps {
  * opens (or switches room); Escape closes it.
  */
 export function RoomDetailPanel({ room, onClose }: RoomDetailPanelProps) {
+  const user = useAuthenticatedUser()
   const titleRef = useRef<HTMLHeadingElement>(null)
   const occupancy = OCCUPANCY[room.occupancy_status]
   const housekeeping = HOUSEKEEPING[room.housekeeping_status]
@@ -87,7 +90,12 @@ export function RoomDetailPanel({ room, onClose }: RoomDetailPanelProps) {
         </div>
 
         <section aria-label="Reservation">
-          {room.reservation_id !== null ? (
+          {room.reservation_id !== null && !can(user, P.RESERVATION_VIEW) ? (
+            <p className="text-sm text-slate-600">
+              {room.guest_name ?? 'A guest'} is booked in this room. Your role does not include
+              reservation details.
+            </p>
+          ) : room.reservation_id !== null ? (
             <ReservationDetails reservationId={room.reservation_id} />
           ) : (
             <p className="text-sm text-slate-600">

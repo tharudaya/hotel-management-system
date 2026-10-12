@@ -8,15 +8,21 @@ from httpx import AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_role
+from app.api.deps import require_permission
 from app.core.config import Settings
-from app.models import AuditEvent, AuditEventType, User, UserRole, UserSession
-from tests.conftest import MakeUser
+from app.core.permissions import DEFAULT_ROLES, P
+from app.models import AuditEvent, AuditEventType, User, UserSession
+from tests.conftest import MakeUser, Roles
 
 LOGIN: str = "/api/auth/login"
 LOGOUT: str = "/api/auth/logout"
 ME: str = "/api/auth/me"
 GENERIC_LOGIN_ERROR: dict[str, str] = {"detail": "Invalid username or password"}
+
+
+def permissions_of(role_name: str) -> list[str]:
+    [role] = [r for r in DEFAULT_ROLES if r.name == role_name]
+    return sorted(role.permissions)
 
 
 async def login(
@@ -44,11 +50,13 @@ async def test_login_success_sets_session_cookie(
     response = await login(client)
 
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    assert body == {
         "id": user.id,
         "username": "frontdesk",
         "full_name": "Frontdesk",
-        "role": "front_desk",
+        "role": {"id": body["role"]["id"], "name": "Receptionist"},
+        "permissions": permissions_of(Roles.RECEPTIONIST),
     }
     set_cookie = response.headers["set-cookie"]
     assert set_cookie.startswith(f"{test_settings.session_cookie_name}=")
@@ -107,10 +115,10 @@ async def test_login_unknown_user_gets_same_error(
     assert event.details == {"reason": "unknown_user"}
 
 
-async def test_login_inactive_user_rejected_with_same_error(
+async def test_login_deactivated_user_rejected_with_same_error(
     client: AsyncClient, make_user: MakeUser, db_session: AsyncSession
 ) -> None:
-    await make_user("frontdesk", is_active=False)
+    await make_user("frontdesk", deactivated=True)
 
     response = await login(client)  # correct password
 
@@ -119,7 +127,33 @@ async def test_login_inactive_user_rejected_with_same_error(
     assert "set-cookie" not in response.headers
     assert await sessions(db_session) == []
     [event] = await audit_events(db_session)
-    assert event.details == {"reason": "inactive"}
+    assert event.details == {"reason": "deactivated"}
+
+
+async def test_login_expired_user_rejected_with_same_error(
+    client: AsyncClient, make_user: MakeUser, db_session: AsyncSession
+) -> None:
+    await make_user("frontdesk", expires_at=datetime.now(UTC) - timedelta(minutes=1))
+
+    response = await login(client)  # correct password
+
+    assert response.status_code == 401
+    assert response.json() == GENERIC_LOGIN_ERROR
+    assert await sessions(db_session) == []
+    [event] = await audit_events(db_session)
+    assert event.details == {"reason": "expired"}
+
+
+async def test_login_allowed_before_expiry_and_records_last_login(
+    client: AsyncClient, make_user: MakeUser, db_session: AsyncSession
+) -> None:
+    user = await make_user("frontdesk", expires_at=datetime.now(UTC) + timedelta(days=1))
+    assert user.last_login_at is None
+
+    assert (await login(client)).status_code == 200
+
+    await db_session.refresh(user)
+    assert user.last_login_at is not None
 
 
 @pytest.mark.parametrize(
@@ -155,7 +189,7 @@ async def test_login_throttled_after_repeated_failures_for_username(
     assert (await audit_events(db_session))[-1].event_type == AuditEventType.LOGIN_BLOCKED
 
     # Other usernames are unaffected (below the per-IP limit).
-    await make_user("manager", role=UserRole.MANAGER)
+    await make_user("manager", role=Roles.GENERAL_MANAGER)
     assert (await login(client, "manager", "manager-password")).status_code == 200
 
 
@@ -196,18 +230,31 @@ async def test_login_replaces_existing_session(
 
 
 async def test_me_returns_current_user(client: AsyncClient, make_user: MakeUser) -> None:
-    user = await make_user("manager", role=UserRole.MANAGER)
+    user = await make_user("manager", role=Roles.GENERAL_MANAGER)
     await login(client, "manager", "manager-password")
 
     response = await client.get(ME)
 
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    assert body == {
         "id": user.id,
         "username": "manager",
         "full_name": "Manager",
-        "role": "manager",
+        "role": {"id": body["role"]["id"], "name": "General manager"},
+        "permissions": permissions_of(Roles.GENERAL_MANAGER),
     }
+    assert "settings.manage" not in body["permissions"]
+
+
+async def test_me_for_user_without_a_role(client: AsyncClient, make_user: MakeUser) -> None:
+    await make_user("visitor", role=None)
+    await login(client, "visitor", "visitor-password")
+
+    body = (await client.get(ME)).json()
+
+    assert (body["role"], body["permissions"]) == (None, [])
+    assert (await client.get("/api/dashboard/rooms")).status_code == 403
 
 
 async def test_protected_route_without_session(client: AsyncClient) -> None:
@@ -243,7 +290,19 @@ async def test_session_of_deactivated_user_rejected(
     user = await make_user("frontdesk")
     await login(client)
 
-    user.is_active = False
+    user.deactivated_at = datetime.now(UTC)
+    await db_session.flush()
+
+    assert (await client.get(ME)).status_code == 401
+
+
+async def test_session_of_user_who_expired_rejected(
+    client: AsyncClient, make_user: MakeUser, db_session: AsyncSession
+) -> None:
+    user = await make_user("frontdesk")
+    await login(client)
+
+    user.expires_at = datetime.now(UTC) - timedelta(hours=1)
     await db_session.flush()
 
     assert (await client.get(ME)).status_code == 401
@@ -284,46 +343,51 @@ async def test_logout_without_session_is_noop(
     assert await audit_events(db_session) == []
 
 
-# --- require_role --------------------------------------------------------------
+# --- require_permission --------------------------------------------------------
 
 
 @pytest.fixture
-def managers_only_route(app: FastAPI) -> str:
+def user_admin_route(app: FastAPI) -> str:
     router = APIRouter()
 
-    @router.get("/api/test/managers-only")
-    async def managers_only(
-        user: Annotated[User, Depends(require_role(UserRole.MANAGER, UserRole.ADMIN))],
+    @router.get("/api/test/user-admin")
+    async def user_admin(
+        user: Annotated[User, Depends(require_permission(P.USER_MANAGE))],
     ) -> dict[str, str]:
         return {"username": user.username}
 
     app.include_router(router)
-    return "/api/test/managers-only"
+    return "/api/test/user-admin"
 
 
-async def test_require_role_allows_listed_role(
-    client: AsyncClient, make_user: MakeUser, managers_only_route: str
+async def test_require_permission_allows_a_role_that_has_it(
+    client: AsyncClient, make_user: MakeUser, user_admin_route: str
 ) -> None:
-    await make_user("manager", role=UserRole.MANAGER)
+    await make_user("manager", role=Roles.GENERAL_MANAGER)
     await login(client, "manager", "manager-password")
 
-    response = await client.get(managers_only_route)
+    response = await client.get(user_admin_route)
 
     assert response.status_code == 200
     assert response.json() == {"username": "manager"}
 
 
-async def test_require_role_forbids_other_roles(
-    client: AsyncClient, make_user: MakeUser, managers_only_route: str
+async def test_require_permission_forbids_a_role_without_it(
+    client: AsyncClient, make_user: MakeUser, user_admin_route: str
 ) -> None:
-    await make_user("frontdesk", role=UserRole.FRONT_DESK)
+    await make_user("frontdesk", role=Roles.RECEPTIONIST)
     await login(client)
 
-    response = await client.get(managers_only_route)
+    response = await client.get(user_admin_route)
 
     assert response.status_code == 403
     assert response.json() == {"detail": "Insufficient permissions"}
 
 
-async def test_require_role_needs_session(client: AsyncClient, managers_only_route: str) -> None:
-    assert (await client.get(managers_only_route)).status_code == 401
+async def test_require_permission_needs_session(client: AsyncClient, user_admin_route: str) -> None:
+    assert (await client.get(user_admin_route)).status_code == 401
+
+
+def test_require_permission_rejects_unknown_keys() -> None:
+    with pytest.raises(ValueError, match="Unknown permission keys"):
+        require_permission("rooms.fly")

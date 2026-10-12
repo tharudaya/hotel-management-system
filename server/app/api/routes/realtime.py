@@ -2,22 +2,17 @@ from fastapi import APIRouter, WebSocket
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
-from app.models import UserRole
+from app.core.permissions import P
 from app.realtime.hub import (
     CLOSE_FORBIDDEN,
     CLOSE_UNAUTHENTICATED,
     Connection,
     ConnectionManager,
 )
-from app.schemas.auth import UserOut
 from app.services import auth as auth_service
+from app.services import permissions as permission_service
 
 router: APIRouter = APIRouter(tags=["realtime"])
-
-# Same audience as the dashboard REST endpoints: events carry guest names.
-DASHBOARD_ROLES: frozenset[UserRole] = frozenset(
-    {UserRole.FRONT_DESK, UserRole.MANAGER, UserRole.ADMIN}
-)
 
 
 @router.websocket("/ws")
@@ -38,17 +33,22 @@ async def realtime(websocket: WebSocket) -> None:
     session_factory: async_sessionmaker[AsyncSession] = websocket.app.state.session_factory
     token = websocket.cookies.get(settings.session_cookie_name)
     session = None
+    user_view = None
     if token:
         async with session_factory() as db:
             session = await auth_service.get_active_session(db, settings, token)
+            if session is not None:
+                property_id = await permission_service.get_default_property_id(db)
+                user_view = await permission_service.describe_user(db, session.user, property_id)
 
     # Accept before rejecting so the browser sees the close code and can send
     # the user to the login page instead of reconnecting in a loop.
     await websocket.accept()
-    if session is None:
+    if session is None or user_view is None:
         await websocket.close(CLOSE_UNAUTHENTICATED, "Not authenticated")
         return
-    if session.user.role not in DASHBOARD_ROLES:
+    # Same audience as the dashboard REST endpoints: events carry guest names.
+    if P.DASHBOARD_VIEW not in user_view.permissions:
         await websocket.close(CLOSE_FORBIDDEN, "Insufficient permissions")
         return
 
@@ -72,7 +72,7 @@ async def realtime(websocket: WebSocket) -> None:
     try:
         await connection.run(
             {
-                "user": UserOut.model_validate(session.user).model_dump(mode="json"),
+                "user": user_view.model_dump(mode="json"),
                 "heartbeat_seconds": settings.ws_heartbeat_seconds,
             }
         )

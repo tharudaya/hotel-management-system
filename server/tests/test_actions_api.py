@@ -21,10 +21,9 @@ from app.models import (
     ReservationStatus,
     Room,
     RoomType,
-    UserRole,
 )
 from app.realtime.events import DomainEvent, RoomStatusChanged, SummaryChanged
-from tests.conftest import LoginAs
+from tests.conftest import LoginAs, Roles
 
 TODAY: date = date(2026, 3, 10)
 HK = HousekeepingStatus
@@ -163,7 +162,7 @@ async def test_check_in_to_pre_assigned_room(
     published: list[DomainEvent],
     db_session: AsyncSession,
 ) -> None:
-    user = await login_as(UserRole.FRONT_DESK)
+    user = await login_as(Roles.RECEPTIONIST)
     arrival, room = hotel.reservations["arrival"], hotel.rooms["101"]
 
     response = await client.post(
@@ -210,7 +209,7 @@ async def test_check_in_to_different_room_updates_both_rooms(
     hotel: Hotel,
     published: list[DomainEvent],
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
     arrival = hotel.reservations["arrival"]
     old_room, new_room = hotel.rooms["101"], hotel.rooms["102"]
 
@@ -229,7 +228,7 @@ async def test_check_in_to_different_room_updates_both_rooms(
 async def test_check_in_unassigned_reservation(
     client: AsyncClient, login_as: LoginAs, hotel: Hotel
 ) -> None:
-    await login_as(UserRole.MANAGER)
+    await login_as(Roles.GENERAL_MANAGER)
     room = hotel.rooms["102"]
 
     response = await client.post(
@@ -280,7 +279,7 @@ async def test_check_in_rejected(
     code: str,
     message: str,
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
     target = hotel.reservations[reservation]
     status_before = target.status
 
@@ -298,7 +297,7 @@ async def test_check_in_rejected(
 
 
 async def test_check_in_not_found(client: AsyncClient, login_as: LoginAs, hotel: Hotel) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
 
     missing_reservation = await client.post(
         "/api/reservations/999999/check-in",
@@ -323,7 +322,7 @@ async def test_check_in_not_found(client: AsyncClient, login_as: LoginAs, hotel:
 async def test_check_in_validation(
     client: AsyncClient, login_as: LoginAs, hotel: Hotel, body: dict[str, int]
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
 
     response = await client.post(check_in_url(hotel.reservations["arrival"]), json=body)
 
@@ -337,7 +336,7 @@ async def test_check_in_stale_version_conflict(
     published: list[DomainEvent],
     db_session: AsyncSession,
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
     arrival, room = hotel.reservations["arrival"], hotel.rooms["101"]
     # Someone else already changed the room (version 1 -> 2).
     await db_session.execute(text("UPDATE rooms SET version = 2 WHERE id = :id"), {"id": room.id})
@@ -361,7 +360,7 @@ async def test_check_in_concurrent_update_conflict(
     db_session: AsyncSession,
     concurrent_writer: Callable[[Room], None],
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
     arrival, room = hotel.reservations["arrival"], hotel.rooms["101"]
     concurrent_writer(room)
 
@@ -391,7 +390,7 @@ async def test_check_out_makes_room_dirty(
     published: list[DomainEvent],
     db_session: AsyncSession,
 ) -> None:
-    user = await login_as(UserRole.FRONT_DESK)
+    user = await login_as(Roles.RECEPTIONIST)
     guest, room = hotel.reservations["inhouse"], hotel.rooms["104"]
 
     response = await client.post(check_out_url(guest), json={"room_version": 1})
@@ -420,7 +419,7 @@ async def test_check_out_makes_room_dirty(
 async def test_check_out_requires_checked_in(
     client: AsyncClient, login_as: LoginAs, hotel: Hotel, published: list[DomainEvent]
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
 
     response = await client.post(
         check_out_url(hotel.reservations["arrival"]), json={"room_version": 1}
@@ -435,7 +434,7 @@ async def test_check_out_requires_checked_in(
 
 
 async def test_check_out_twice(client: AsyncClient, login_as: LoginAs, hotel: Hotel) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
     url = check_out_url(hotel.reservations["inhouse"])
 
     assert (await client.post(url, json={"room_version": 1})).status_code == 200
@@ -448,7 +447,7 @@ async def test_check_out_twice(client: AsyncClient, login_as: LoginAs, hotel: Ho
 async def test_check_out_stale_version_conflict(
     client: AsyncClient, login_as: LoginAs, hotel: Hotel, db_session: AsyncSession
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
     guest = hotel.reservations["inhouse"]
 
     response = await client.post(check_out_url(guest), json={"room_version": 7})
@@ -466,7 +465,7 @@ async def test_check_out_concurrent_update_conflict(
     db_session: AsyncSession,
     concurrent_writer: Callable[[Room], None],
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
     guest, room = hotel.reservations["inhouse"], hotel.rooms["104"]
     concurrent_writer(room)
 
@@ -488,7 +487,7 @@ async def test_housekeeping_status_change(
     published: list[DomainEvent],
     db_session: AsyncSession,
 ) -> None:
-    user = await login_as(UserRole.HOUSEKEEPING)
+    user = await login_as(Roles.ROOM_ATTENDANT)
     room = hotel.rooms["103"]  # dirty
 
     started = await client.patch(
@@ -525,7 +524,7 @@ async def test_housekeeping_invalid_transition(
     published: list[DomainEvent],
     db_session: AsyncSession,
 ) -> None:
-    await login_as(UserRole.HOUSEKEEPING)
+    await login_as(Roles.HOUSEKEEPING_SUPERVISOR)
     room = hotel.rooms["106"]  # out_of_order
 
     response = await client.patch(housekeeping_url(room), json={"status": "clean", "version": 1})
@@ -547,7 +546,7 @@ async def test_housekeeping_invalid_transition(
 async def test_housekeeping_same_status_rejected(
     client: AsyncClient, login_as: LoginAs, hotel: Hotel
 ) -> None:
-    await login_as(UserRole.HOUSEKEEPING)
+    await login_as(Roles.ROOM_ATTENDANT)
 
     response = await client.patch(
         housekeeping_url(hotel.rooms["101"]), json={"status": "clean", "version": 1}
@@ -569,7 +568,7 @@ async def test_housekeeping_same_status_rejected(
 async def test_housekeeping_validation(
     client: AsyncClient, login_as: LoginAs, hotel: Hotel, body: dict[str, object]
 ) -> None:
-    await login_as(UserRole.HOUSEKEEPING)
+    await login_as(Roles.ROOM_ATTENDANT)
 
     response = await client.patch(housekeeping_url(hotel.rooms["103"]), json=body)
 
@@ -577,7 +576,7 @@ async def test_housekeeping_validation(
 
 
 async def test_housekeeping_room_not_found(client: AsyncClient, login_as: LoginAs) -> None:
-    await login_as(UserRole.HOUSEKEEPING)
+    await login_as(Roles.ROOM_ATTENDANT)
 
     response = await client.patch(
         "/api/rooms/999999/housekeeping-status", json={"status": "clean", "version": 1}
@@ -590,7 +589,7 @@ async def test_housekeeping_second_writer_with_stale_version_gets_409(
     client: AsyncClient, login_as: LoginAs, hotel: Hotel, published: list[DomainEvent]
 ) -> None:
     """Two people looking at version 1 of the same room: the first change wins."""
-    await login_as(UserRole.HOUSEKEEPING)
+    await login_as(Roles.HOUSEKEEPING_SUPERVISOR)
     url = housekeeping_url(hotel.rooms["103"])
 
     first = await client.patch(url, json={"status": "in_progress", "version": 1})
@@ -615,7 +614,7 @@ async def test_housekeeping_concurrent_update_conflict(
     db_session: AsyncSession,
     concurrent_writer: Callable[[Room], None],
 ) -> None:
-    await login_as(UserRole.HOUSEKEEPING)
+    await login_as(Roles.ROOM_ATTENDANT)
     room = hotel.rooms["103"]
     concurrent_writer(room)
 
@@ -638,7 +637,7 @@ async def test_housekeeping_concurrent_update_conflict(
 async def test_housekeeping_role_cannot_check_in_or_out(
     client: AsyncClient, login_as: LoginAs, hotel: Hotel, action: str
 ) -> None:
-    await login_as(UserRole.HOUSEKEEPING)
+    await login_as(Roles.ROOM_ATTENDANT)
     reservation = hotel.reservations["arrival" if action == "check-in" else "inhouse"]
 
     response = await client.post(
@@ -649,21 +648,66 @@ async def test_housekeeping_role_cannot_check_in_or_out(
     assert response.status_code == 403
 
 
-async def test_front_desk_cannot_change_housekeeping_status(
+async def test_receptionist_can_change_housekeeping_status(
     client: AsyncClient, login_as: LoginAs, hotel: Hotel
 ) -> None:
-    await login_as(UserRole.FRONT_DESK)
+    await login_as(Roles.RECEPTIONIST)
 
     response = await client.patch(
         housekeeping_url(hotel.rooms["103"]), json={"status": "in_progress", "version": 1}
     )
 
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("room", "status"),
+    [("103", "out_of_order"), ("106", "dirty")],  # into and out of service
+)
+@pytest.mark.parametrize("role", [Roles.RECEPTIONIST, Roles.ROOM_ATTENDANT])
+async def test_out_of_order_needs_its_own_permission(
+    client: AsyncClient,
+    login_as: LoginAs,
+    hotel: Hotel,
+    published: list[DomainEvent],
+    db_session: AsyncSession,
+    role: str,
+    room: str,
+    status: str,
+) -> None:
+    await login_as(role)
+    target = hotel.rooms[room]
+    before = target.housekeeping_status
+
+    response = await client.patch(housekeeping_url(target), json={"status": status, "version": 1})
+
     assert response.status_code == 403
+    assert response.json() == {
+        "detail": "You don't have permission to take rooms out of order or back into service.",
+        "code": "forbidden",
+    }
+    await refresh(db_session, target)
+    assert target.housekeeping_status == before
+    assert published == []
 
 
-@pytest.mark.parametrize("role", [UserRole.MANAGER, UserRole.ADMIN])
+@pytest.mark.parametrize(("room", "status"), [("103", "out_of_order"), ("106", "dirty")])
+async def test_housekeeping_supervisor_can_take_rooms_in_and_out_of_service(
+    client: AsyncClient, login_as: LoginAs, hotel: Hotel, room: str, status: str
+) -> None:
+    await login_as(Roles.HOUSEKEEPING_SUPERVISOR)
+
+    response = await client.patch(
+        housekeeping_url(hotel.rooms[room]), json={"status": status, "version": 1}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["housekeeping_status"] == status
+
+
+@pytest.mark.parametrize("role", [Roles.GENERAL_MANAGER, Roles.ADMIN])
 async def test_managers_can_do_everything(
-    client: AsyncClient, login_as: LoginAs, hotel: Hotel, role: UserRole
+    client: AsyncClient, login_as: LoginAs, hotel: Hotel, role: str
 ) -> None:
     await login_as(role)
 

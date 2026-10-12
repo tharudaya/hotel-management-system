@@ -8,32 +8,35 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
 from app.core.config import Settings
+from app.core.permissions import ALL_PERMISSION_KEYS, DEFAULT_ROLES, P
 from app.main import create_app
-from app.models import UserRole
-from tests.conftest import LoginAs
+from tests.conftest import USERNAME_FOR_ROLE, LoginAs
 
 PUBLIC = "public"
-ANY_ROLE: frozenset[UserRole] = frozenset(UserRole)
-DASHBOARD: frozenset[UserRole] = frozenset({UserRole.FRONT_DESK, UserRole.MANAGER, UserRole.ADMIN})
-HOUSEKEEPING: frozenset[UserRole] = frozenset(
-    {UserRole.HOUSEKEEPING, UserRole.MANAGER, UserRole.ADMIN}
-)
+SIGNED_IN = "any signed-in user"
 
-# Who may call each REST operation. Every operation in the OpenAPI schema must be
-# listed: adding an endpoint fails this test until its access is decided here.
-ACCESS: dict[tuple[str, str], frozenset[UserRole] | str] = {
+# What each REST operation requires: a permission key, any signed-in user, or nothing.
+# Every operation in the OpenAPI schema must be listed: adding an endpoint fails this
+# test until its access is decided here.
+ACCESS: dict[tuple[str, str], str] = {
     ("GET", "/api/health"): PUBLIC,
     ("POST", "/api/auth/login"): PUBLIC,
     ("POST", "/api/auth/logout"): PUBLIC,
-    ("GET", "/api/auth/me"): ANY_ROLE,
-    ("GET", "/api/hotel"): ANY_ROLE,
-    ("GET", "/api/dashboard/rooms"): DASHBOARD,
-    ("GET", "/api/dashboard/summary"): DASHBOARD,
-    ("GET", "/api/reservations/{reservation_id}"): DASHBOARD,
-    ("POST", "/api/reservations/{reservation_id}/check-in"): DASHBOARD,
-    ("POST", "/api/reservations/{reservation_id}/check-out"): DASHBOARD,
-    ("PATCH", "/api/rooms/{room_id}/housekeeping-status"): HOUSEKEEPING,
+    ("GET", "/api/auth/me"): SIGNED_IN,
+    ("GET", "/api/hotel"): SIGNED_IN,
+    ("GET", "/api/dashboard/rooms"): P.DASHBOARD_VIEW,
+    ("GET", "/api/dashboard/summary"): P.DASHBOARD_VIEW,
+    ("GET", "/api/reservations/{reservation_id}"): P.RESERVATION_VIEW,
+    ("POST", "/api/reservations/{reservation_id}/check-in"): P.RESERVATION_CHECK_IN,
+    ("POST", "/api/reservations/{reservation_id}/check-out"): P.RESERVATION_CHECK_OUT,
+    ("PATCH", "/api/rooms/{room_id}/housekeeping-status"): P.ROOM_UPDATE_HOUSEKEEPING_STATUS,
 }
+ROLE_PERMISSIONS: dict[str, frozenset[str]] = {r.name: r.permissions for r in DEFAULT_ROLES}
+
+
+def test_access_rules_use_known_permissions() -> None:
+    rules = set(ACCESS.values()) - {PUBLIC, SIGNED_IN}
+    assert rules <= ALL_PERMISSION_KEYS
 
 
 def operations(app: FastAPI) -> set[tuple[str, str]]:
@@ -60,9 +63,9 @@ async def test_protected_operations_require_a_session(
     assert response.status_code == 401
 
 
-@pytest.mark.parametrize("role", list(UserRole))
-async def test_roles_only_reach_operations_they_are_allowed(
-    client: AsyncClient, login_as: LoginAs, role: UserRole
+@pytest.mark.parametrize("role", list(USERNAME_FOR_ROLE))
+async def test_each_default_role_reaches_exactly_what_its_permissions_allow(
+    client: AsyncClient, login_as: LoginAs, role: str
 ) -> None:
     await login_as(role)
 
@@ -70,7 +73,7 @@ async def test_roles_only_reach_operations_they_are_allowed(
         if rule == PUBLIC:
             continue
         response = await client.request(method, concrete(path), json={})
-        if role in rule:
+        if rule == SIGNED_IN or rule in ROLE_PERMISSIONS[role]:
             # Allowed: may still be 404/409/422 for this dummy request, never 401/403.
             assert response.status_code not in (401, 403), (method, path, role)
         else:

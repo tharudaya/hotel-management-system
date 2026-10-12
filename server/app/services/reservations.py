@@ -44,7 +44,9 @@ READY_FOR_GUEST: frozenset[HousekeepingStatus] = frozenset(
 )
 
 
-async def get_reservation_detail(db: AsyncSession, reservation_id: int) -> ReservationDetail:
+async def get_reservation_detail(
+    db: AsyncSession, reservation_id: int, *, include_contact: bool
+) -> ReservationDetail:
     row = (
         await db.execute(
             select(Reservation, Guest, RoomType, Room)
@@ -75,8 +77,9 @@ async def get_reservation_detail(db: AsyncSession, reservation_id: int) -> Reser
         guest=GuestOut(
             first_name=guest.first_name,
             last_name=guest.last_name,
-            email=guest.email,
-            phone=guest.phone,
+            # Contact details need guest.view_contact (decided by the caller).
+            email=guest.email if include_contact else None,
+            phone=guest.phone if include_contact else None,
         ),
     )
 

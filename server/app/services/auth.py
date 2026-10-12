@@ -17,6 +17,7 @@ from app.models import AuditEvent, AuditEventType, User, UserSession
 from app.realtime.bus import EventBus
 from app.realtime.events import SessionEnded
 from app.services.audit import ClientInfo, record_event
+from app.services.permissions import user_can_act
 
 
 class InvalidCredentialsError(Exception):
@@ -125,13 +126,17 @@ async def login(
     valid, updated_hash = verify_and_update_password(password, user.password_hash)
     if not valid:
         raise await _fail(db, client, username, "bad_password", user.id)
-    if not user.is_active:
-        raise await _fail(db, client, username, "inactive", user.id)
+    now = datetime.now(UTC)
+    # Same generic error as a wrong password; the audit row records the real reason.
+    if user.deactivated_at is not None:
+        raise await _fail(db, client, username, "deactivated", user.id)
+    if user.expires_at is not None and user.expires_at <= now:
+        raise await _fail(db, client, username, "expired", user.id)
 
     if updated_hash is not None:
         user.password_hash = updated_hash
+    user.last_login_at = now
 
-    now = datetime.now(UTC)
     # Never reuse a session across logins (prevents session fixation).
     replaced_user_id = await _revoke(db, settings, previous_token, now) if previous_token else None
     # Housekeeping: drop this user's sessions that can no longer be used.
@@ -201,14 +206,15 @@ def _active_session_filter(token_hash: str) -> tuple[ColumnElement[bool], ...]:
         UserSession.token_hash == token_hash,
         UserSession.revoked_at.is_(None),
         UserSession.expires_at > func.now(),
-        User.is_active.is_(True),
+        # Deactivating or expiring a user ends their sessions too.
+        user_can_act(func.now()),
     )
 
 
 async def get_active_session(
     db: AsyncSession, settings: Settings, token: str
 ) -> ActiveSession | None:
-    """The unexpired, unrevoked session for this token, if its user is active."""
+    """The unexpired, unrevoked session for this token, if its user may still act."""
     token_hash = _token_hash(settings, token)
     row = (
         await db.execute(
@@ -220,6 +226,10 @@ async def get_active_session(
     if row is None:
         return None
     user, expires_at = row
+    # A temporary user's access ends at their own expiry if that comes first, so a
+    # long-lived WebSocket is closed on time.
+    if user.expires_at is not None:
+        expires_at = min(expires_at, user.expires_at)
     return ActiveSession(user=user, token_hash=token_hash, expires_at=expires_at)
 
 

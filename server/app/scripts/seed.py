@@ -30,18 +30,23 @@ from app.models import (
     HousekeepingStatus,
     Reservation,
     ReservationStatus,
+    Role,
     Room,
     RoomType,
     User,
-    UserRole,
+    UserPropertyRole,
 )
+from app.services.permissions import get_default_property_id
 
 # Development-only credentials. The script refuses to run in production.
-DEV_USERS: list[tuple[str, str, UserRole]] = [
-    ("frontdesk", "Fran Desk", UserRole.FRONT_DESK),
-    ("housekeeping", "Harper Keeping", UserRole.HOUSEKEEPING),
-    ("manager", "Morgan Manager", UserRole.MANAGER),
-    ("admin", "Alex Admin", UserRole.ADMIN),
+# One user per default system role: (username, full name, role name).
+DEV_USERS: list[tuple[str, str, str]] = [
+    ("admin", "Alex Admin", "Admin"),
+    ("manager", "Morgan Manager", "General manager"),
+    ("fomanager", "Frankie Office", "Front office manager"),
+    ("frontdesk", "Fran Desk", "Receptionist"),
+    ("housekeeping", "Harper Keeping", "Housekeeping supervisor"),
+    ("attendant", "Ari Attendant", "Room attendant"),
 ]
 
 
@@ -158,15 +163,31 @@ async def seed_dev_data(session: AsyncSession, today: date) -> SeedSummary:
     rng = random.Random(today.toordinal())  # noqa: S311 - reproducible dev data, not security
     summary = SeedSummary()
 
-    for username, full_name, role in DEV_USERS:
-        session.add(
-            User(
-                username=username,
-                password_hash=hash_password(dev_password(username)),
-                full_name=full_name,
-                role=role,
+    # Roles come from the migration (system roles of the property).
+    property_id = await get_default_property_id(session)
+    roles = {
+        role.name: role.id
+        for role in (
+            await session.scalars(
+                select(Role).where(Role.property_id == property_id, Role.is_system)
             )
+        ).all()
+    }
+    users = [
+        User(
+            username=username,
+            password_hash=hash_password(dev_password(username)),
+            full_name=full_name,
+            job_title=role_name,
         )
+        for username, full_name, role_name in DEV_USERS
+    ]
+    session.add_all(users)
+    await session.flush()
+    session.add_all(
+        UserPropertyRole(user_id=user.id, property_id=property_id, role_id=roles[role_name])
+        for user, (_, _, role_name) in zip(users, DEV_USERS, strict=True)
+    )
     summary.users = len(DEV_USERS)
 
     types = {
@@ -302,9 +323,12 @@ async def seed_dev_data(session: AsyncSession, today: date) -> SeedSummary:
     return summary
 
 
+# Wiped by --reset. Properties, roles and permissions come from the migration (and
+# the startup sync) and are kept.
 APP_TABLES: tuple[str, ...] = (
     "audit_events",
     "sessions",
+    "user_property_roles",
     "reservations",
     "guests",
     "rooms",
@@ -345,8 +369,8 @@ async def _main(reset: bool) -> int:
         print(f"  {name:<13}{len(numbers):>3}  {' '.join(numbers)}")
     print(f"  {'unassigned arrivals':<17}{summary.unassigned_arrivals:>3}")
     print("\nDev logins (username / password):")
-    for username, _, role in DEV_USERS:
-        print(f"  {role.value:<13} {username} / {dev_password(username)}")
+    for username, _, role_name in DEV_USERS:
+        print(f"  {role_name:<24} {username} / {dev_password(username)}")
     return 0
 
 

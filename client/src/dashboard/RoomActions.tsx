@@ -3,8 +3,9 @@ import { useId, useState } from 'react'
 import { ApiError } from '../api/client'
 import type { DashboardRoom, HousekeepingStatus } from '../api/types'
 import { useAuthenticatedUser } from '../auth/currentUser'
+import { can, P } from '../auth/permissions'
 import { buttonPrimary, buttonSecondary } from '../components/styles'
-import { canChangeHousekeeping, HOUSEKEEPING_TRANSITIONS } from './housekeeping'
+import { allowedHousekeepingTargets } from './housekeeping'
 import { type RoomAction, useRoomAction } from './queries'
 import { HOUSEKEEPING } from './status'
 
@@ -33,11 +34,18 @@ export function RoomActions({ room }: { room: DashboardRoom }) {
 
   const pending = action.isPending ? action.variables : undefined
   const reservationId = room.reservation_id
-  const canCheckIn = room.occupancy_status === 'arriving_today' && reservationId !== null
+  const canCheckIn =
+    can(user, P.RESERVATION_CHECK_IN) &&
+    room.occupancy_status === 'arriving_today' &&
+    reservationId !== null
   const ready = READY_FOR_GUEST.includes(room.housekeeping_status)
   const canCheckOut =
+    can(user, P.RESERVATION_CHECK_OUT) &&
     (room.occupancy_status === 'occupied' || room.occupancy_status === 'departing_today') &&
     reservationId !== null
+  const housekeepingTargets = can(user, P.ROOM_UPDATE_HOUSEKEEPING_STATUS)
+    ? allowedHousekeepingTargets(room.housekeeping_status, user)
+    : []
 
   return (
     <div className="space-y-4">
@@ -93,11 +101,11 @@ export function RoomActions({ room }: { room: DashboardRoom }) {
         </div>
       )}
 
-      {canChangeHousekeeping(user.role) && (
+      {housekeepingTargets.length > 0 && (
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium text-slate-700">Housekeeping</legend>
           <div className="flex flex-wrap gap-2">
-            {HOUSEKEEPING_TRANSITIONS[room.housekeeping_status].map((status) => (
+            {housekeepingTargets.map((status) => (
               <button
                 key={status}
                 type="button"
