@@ -37,11 +37,18 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import Enum
 from typing import Any, Final
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from app.realtime.events import BroadcastEvent, DomainEvent, SessionEnded, broadcast_payload
+from app.realtime.events import (
+    BroadcastEvent,
+    DomainEvent,
+    PermissionsChanged,
+    SessionEnded,
+    broadcast_payload,
+)
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -56,6 +63,14 @@ def envelope(message_type: str, seq: int, payload: dict[str, Any]) -> str:
     return json.dumps({"type": message_type, "seq": seq, "payload": payload})
 
 
+class Access(Enum):
+    """Result of re-checking whether a connected user may still receive events."""
+
+    OK = "ok"
+    SESSION_ENDED = "session_ended"  # logged out, revoked, deactivated or expired
+    FORBIDDEN = "forbidden"  # signed in, but no longer has dashboard.view
+
+
 @dataclass(frozen=True)
 class _CloseRequest:
     code: int
@@ -67,7 +82,8 @@ class Connection:
 
     - sender: the only writer to the socket; drains this connection's queue
     - receiver: reads pongs and notices client disconnects
-    - heartbeat: pings, enforces pong timeout, session expiry and validity
+    - heartbeat: pings, enforces pong timeout, session expiry, and re-checks access
+      (session and dashboard.view) on every beat and whenever recheck() is called
     """
 
     def __init__(
@@ -75,18 +91,21 @@ class Connection:
         websocket: WebSocket,
         *,
         user_id: int,
+        property_id: int,
         session_token_hash: str,
         session_expires_at: datetime,
-        check_session: Callable[[], Awaitable[bool]],
+        check_access: Callable[[], Awaitable[Access]],
         heartbeat_seconds: float,
         max_pending: int,
         current_seq: Callable[[], int],
     ) -> None:
         self.websocket = websocket
         self.user_id = user_id
+        self.property_id = property_id
         self.session_token_hash = session_token_hash
         self._session_expires_at = session_expires_at
-        self._check_session = check_session
+        self._check_access = check_access
+        self._recheck_requested = asyncio.Event()
         self._heartbeat_seconds = heartbeat_seconds
         self._max_pending = max_pending
         self._current_seq = current_seq
@@ -106,6 +125,10 @@ class Connection:
             self.close(CLOSE_TOO_SLOW, "Client too slow; reconnect and refetch")
             return
         self._queue.put_nowait(text)
+
+    def recheck(self) -> None:
+        """Re-check access now instead of at the next heartbeat (never blocks)."""
+        self._recheck_requested.set()
 
     def close(self, code: int, reason: str) -> None:
         """Ask the connection to close after the messages already queued."""
@@ -160,14 +183,27 @@ class Connection:
     async def _heartbeat(self) -> None:
         while True:
             until_expiry = (self._session_expires_at - datetime.now(UTC)).total_seconds()
-            await asyncio.sleep(max(min(self._heartbeat_seconds, until_expiry), 0))
+            wait = max(min(self._heartbeat_seconds, until_expiry), 0)
+            # Sleep until the next beat, or wake early when a recheck is requested.
+            try:
+                await asyncio.wait_for(self._recheck_requested.wait(), timeout=wait)
+                recheck_only = True
+            except TimeoutError:
+                recheck_only = False
+            self._recheck_requested.clear()
 
             if datetime.now(UTC) >= self._session_expires_at:
                 self.close(CLOSE_UNAUTHENTICATED, "Session expired")
                 return
-            if not await self._check_session():
+            access = await self._check_access()
+            if access is Access.SESSION_ENDED:
                 self.close(CLOSE_UNAUTHENTICATED, "Session ended")
                 return
+            if access is Access.FORBIDDEN:
+                self.close(CLOSE_FORBIDDEN, "Insufficient permissions")
+                return
+            if recheck_only:
+                continue  # not a heartbeat: no ping, no pong bookkeeping
             if time.monotonic() - self._last_pong > 2 * self._heartbeat_seconds:
                 self.close(CLOSE_HEARTBEAT_TIMEOUT, "No pong received")
                 return
@@ -202,6 +238,14 @@ class ConnectionManager:
             for connection in list(self._connections):
                 if connection.session_token_hash == event.session_token_hash:
                     connection.close(CLOSE_UNAUTHENTICATED, "Logged out")
+            return
+        if isinstance(event, PermissionsChanged):
+            affected = None if event.user_ids is None else set(event.user_ids)
+            for connection in list(self._connections):
+                if connection.property_id == event.property_id and (
+                    affected is None or connection.user_id in affected
+                ):
+                    connection.recheck()
             return
         self.broadcast(event)
 

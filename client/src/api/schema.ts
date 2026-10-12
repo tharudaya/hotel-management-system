@@ -365,6 +365,15 @@ export interface components {
          * @enum {string}
          */
         OccupancyStatus: "vacant" | "occupied" | "arriving_today" | "departing_today" | "out_of_order";
+        /** PropertyRef */
+        PropertyRef: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Time Zone */
+            time_zone: string;
+        };
         /** ReservationDetail */
         ReservationDetail: {
             /** Id */
@@ -425,6 +434,7 @@ export interface components {
             username: string;
             /** Full Name */
             full_name: string;
+            property: components["schemas"]["PropertyRef"];
             role: components["schemas"]["RoleRef"] | null;
             /** Permissions */
             permissions: string[];

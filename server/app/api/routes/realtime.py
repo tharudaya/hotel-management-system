@@ -6,6 +6,7 @@ from app.core.permissions import P
 from app.realtime.hub import (
     CLOSE_FORBIDDEN,
     CLOSE_UNAUTHENTICATED,
+    Access,
     Connection,
     ConnectionManager,
 )
@@ -34,6 +35,7 @@ async def realtime(websocket: WebSocket) -> None:
     token = websocket.cookies.get(settings.session_cookie_name)
     session = None
     user_view = None
+    property_id = 0
     if token:
         async with session_factory() as db:
             session = await auth_service.get_active_session(db, settings, token)
@@ -53,17 +55,25 @@ async def realtime(websocket: WebSocket) -> None:
         return
 
     token_hash = session.token_hash
+    user_id = session.user.id
 
-    async def check_session() -> bool:
+    async def check_access() -> Access:
+        # Session still valid (not revoked, expired or deactivated) and still allowed.
         async with session_factory() as db:
-            return await auth_service.is_session_active(db, token_hash)
+            if not await auth_service.is_session_active(db, token_hash):
+                return Access.SESSION_ENDED
+            permissions = await permission_service.get_effective_permissions(
+                db, user_id, property_id
+            )
+        return Access.OK if P.DASHBOARD_VIEW in permissions else Access.FORBIDDEN
 
     connection = Connection(
         websocket,
-        user_id=session.user.id,
+        user_id=user_id,
+        property_id=property_id,
         session_token_hash=token_hash,
         session_expires_at=session.expires_at,
-        check_session=check_session,
+        check_access=check_access,
         heartbeat_seconds=settings.ws_heartbeat_seconds,
         max_pending=settings.ws_max_pending_messages,
         current_seq=lambda: hub.seq,

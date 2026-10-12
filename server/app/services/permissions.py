@@ -15,7 +15,9 @@ from app.core.permissions import (
 )
 from app.core.permissions import Permission as CatalogPermission
 from app.models import Permission, Property, Role, RolePermission, User, UserPropertyRole
-from app.schemas.auth import RoleRef, UserOut
+from app.realtime.bus import EventBus
+from app.realtime.events import PermissionsChanged
+from app.schemas.auth import PropertyRef, RoleRef, UserOut
 
 
 def user_can_act(now: datetime | ColumnElement[datetime]) -> ColumnElement[bool]:
@@ -133,13 +135,32 @@ async def get_effective_permissions(
 
 
 async def describe_user(db: AsyncSession, user: User, property_id: int) -> UserOut:
-    """The user with their role and effective permissions at the property."""
+    """The user with the property, their role there and their effective permissions."""
+    prop = await db.get(Property, property_id)
+    if prop is None:
+        raise LookupError(f"Property {property_id} not found")
     role = await get_assigned_role(db, user.id, property_id)
     permissions = await get_effective_permissions(db, user.id, property_id)
     return UserOut(
         id=user.id,
         username=user.username,
         full_name=user.full_name,
+        property=PropertyRef(id=prop.id, name=prop.name, time_zone=prop.time_zone),
         role=RoleRef(id=role.id, name=role.name) if role else None,
         permissions=sorted(permissions),
+    )
+
+
+async def publish_permissions_changed(
+    bus: EventBus, property_id: int, user_ids: Iterable[int] | None = None
+) -> None:
+    """Tell live connections that permissions changed (call after commit).
+
+    Pass the affected users, or None when a role's permission set changed (everyone at
+    the property is re-checked). Role and user management services call this.
+    """
+    await bus.publish(
+        PermissionsChanged(
+            property_id=property_id, user_ids=None if user_ids is None else sorted(user_ids)
+        )
     )

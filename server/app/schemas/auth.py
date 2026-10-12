@@ -12,12 +12,20 @@ class RoleRef(BaseModel):
     name: str
 
 
+class PropertyRef(BaseModel):
+    id: int
+    name: str
+    time_zone: str
+
+
 class UserOut(BaseModel):
     """The signed-in user at the current property, as the client needs it."""
 
     id: int
     username: str
     full_name: str
+    # The property this session acts on (the only one, until multi-property).
+    property: PropertyRef
     # None if the user has no role at this property (then permissions is empty).
     role: RoleRef | None
     # Sorted permission keys. For showing/hiding UI only: the server checks every request.

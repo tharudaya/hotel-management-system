@@ -35,7 +35,21 @@ class SessionEnded(BaseModel):
     user_id: int
 
 
-type DomainEvent = RoomStatusChanged | SummaryChanged | SessionEnded
+class PermissionsChanged(BaseModel):
+    """Someone's effective permissions at a property may have changed: a role was
+    assigned or removed, a role's permissions were edited, or a user was deactivated.
+
+    Internal only: the hub immediately re-checks the affected sockets and closes those
+    that may no longer receive dashboard events. `user_ids` None means everyone at the
+    property (e.g. a role's permission set changed).
+    """
+
+    type: Literal["permissions_changed"] = "permissions_changed"
+    property_id: int
+    user_ids: list[int] | None = None
+
+
+type DomainEvent = RoomStatusChanged | SummaryChanged | SessionEnded | PermissionsChanged
 
 # Events that connected dashboards receive.
 type BroadcastEvent = RoomStatusChanged | SummaryChanged

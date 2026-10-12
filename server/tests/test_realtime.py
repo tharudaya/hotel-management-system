@@ -15,23 +15,28 @@ import pytest
 from fastapi import FastAPI, WebSocket
 from httpx import AsyncClient
 from httpx_ws import AsyncWebSocketSession, WebSocketDisconnect, aconnect_ws
-from sqlalchemy import update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.deps import get_hotel_today
 from app.core.config import Settings
+from app.core.permissions import P
 from app.main import create_app
 from app.models import (
     Guest,
     HousekeepingStatus,
     Reservation,
     ReservationStatus,
+    Role,
+    RolePermission,
     Room,
     RoomType,
     User,
+    UserPropertyRole,
     UserSession,
 )
-from app.realtime.hub import Connection
+from app.realtime.hub import Access, Connection
+from app.services.permissions import get_default_property_id, publish_permissions_changed
 from tests.conftest import (
     USERNAME_FOR_ROLE,
     LiveClientFactory,
@@ -39,6 +44,7 @@ from tests.conftest import (
     assign_role,
     cached_password_hash,
     live_clients,
+    role_id,
 )
 
 TODAY: date = date(2026, 3, 10)
@@ -412,6 +418,142 @@ async def test_deactivated_user_socket_closed_on_next_heartbeat(
             await expect_close(ws, 4401, "Session ended")
 
 
+# --- permission changes ------------------------------------------------------------------
+
+
+async def change_role(
+    live_db: async_sessionmaker[AsyncSession], username: str, role_name: str
+) -> tuple[int, int]:
+    """Give a seeded user another role (committed). Returns (user_id, property_id)."""
+    async with live_db() as db:
+        property_id = await get_default_property_id(db)
+        user_id = await db.scalar(select(User.id).where(User.username == username))
+        assert user_id is not None
+        await db.execute(
+            update(UserPropertyRole)
+            .where(UserPropertyRole.user_id == user_id)
+            .values(role_id=await role_id(db, role_name))
+        )
+        await db.commit()
+        return user_id, property_id
+
+
+async def test_socket_closed_at_once_when_the_users_role_loses_dashboard_access(
+    test_settings: Settings,
+    seeded: dict[str, int],
+    live_db: async_sessionmaker[AsyncSession],
+) -> None:
+    async with live_clients(test_settings) as live_client_factory:
+        app, client = await live(live_client_factory)  # Receptionist; heartbeat 25 s
+
+        async with connect(client) as ws:
+            await receive(ws)
+            user_id, property_id = await change_role(live_db, "frontdesk", Roles.ROOM_ATTENDANT)
+
+            await publish_permissions_changed(app.state.event_bus, property_id, [user_id])
+
+            # Closed by the event, long before the next heartbeat.
+            await expect_close(ws, 4403, "Insufficient permissions")
+
+
+async def test_permission_change_for_another_user_leaves_socket_open(
+    test_settings: Settings,
+    seeded: dict[str, int],
+    live_db: async_sessionmaker[AsyncSession],
+) -> None:
+    async with live_clients(test_settings) as live_client_factory:
+        app, front_desk = await live(live_client_factory)
+        _, manager = await live_client_factory(app)
+        await login(manager, Roles.GENERAL_MANAGER)
+
+        async with connect(front_desk) as ws_front_desk, connect(manager) as ws_manager:
+            await receive(ws_front_desk)
+            await receive(ws_manager)
+            user_id, property_id = await change_role(live_db, "frontdesk", Roles.ROOM_ATTENDANT)
+
+            await publish_permissions_changed(app.state.event_bus, property_id, [user_id])
+            await expect_close(ws_front_desk, 4403)
+
+            # The manager is unaffected and still receives events.
+            await manager.post(
+                f"/api/reservations/{seeded['reservation']}/check-out", json={"room_version": 1}
+            )
+            assert (await receive(ws_manager))["type"] == "room_status_changed"
+
+
+async def test_socket_kept_when_permissions_change_but_dashboard_access_remains(
+    test_settings: Settings,
+    seeded: dict[str, int],
+    live_db: async_sessionmaker[AsyncSession],
+) -> None:
+    async with live_clients(test_settings) as live_client_factory:
+        app, client = await live(live_client_factory)
+
+        async with connect(client) as ws:
+            await receive(ws)
+            # Receptionist -> Housekeeping supervisor: different permissions, still dashboard.
+            user_id, property_id = await change_role(
+                live_db, "frontdesk", Roles.HOUSEKEEPING_SUPERVISOR
+            )
+
+            await publish_permissions_changed(app.state.event_bus, property_id, [user_id])
+            await asyncio.sleep(0.2)  # give the re-check time to run
+
+            assert app.state.hub.connection_count == 1
+
+
+async def test_property_wide_change_rechecks_everyone(
+    test_settings: Settings,
+    seeded: dict[str, int],
+    live_db: async_sessionmaker[AsyncSession],
+) -> None:
+    # A custom role whose dashboard.view is then removed (as if an admin edited it).
+    async with live_db() as db:
+        property_id = await get_default_property_id(db)
+        custom = Role(property_id=property_id, name="Temporary desk", is_system=False)
+        db.add(custom)
+        await db.flush()
+        db.add(RolePermission(role_id=custom.id, permission_key=P.DASHBOARD_VIEW))
+        await db.commit()
+        custom_id = custom.id
+    try:
+        await change_role(live_db, "frontdesk", "Temporary desk")
+        async with live_clients(test_settings) as live_client_factory:
+            app, client = await live(live_client_factory)
+
+            async with connect(client) as ws:
+                await receive(ws)
+                async with live_db() as db:
+                    await db.execute(
+                        delete(RolePermission).where(RolePermission.role_id == custom_id)
+                    )
+                    await db.commit()
+
+                await publish_permissions_changed(app.state.event_bus, property_id, None)
+
+                await expect_close(ws, 4403, "Insufficient permissions")
+    finally:
+        async with live_db() as db:  # roles survive the table truncation; clean up
+            await db.execute(delete(UserPropertyRole).where(UserPropertyRole.role_id == custom_id))
+            await db.execute(delete(Role).where(Role.id == custom_id))
+            await db.commit()
+
+
+async def test_heartbeat_catches_a_role_change_without_an_event(
+    test_settings: Settings,
+    seeded: dict[str, int],
+    live_db: async_sessionmaker[AsyncSession],
+) -> None:
+    async with live_clients(test_settings) as live_client_factory:
+        _, client = await live(live_client_factory, ws_heartbeat_seconds=0.2)
+
+        async with connect(client) as ws:
+            await receive(ws)
+            await change_role(live_db, "frontdesk", Roles.ROOM_ATTENDANT)
+
+            await expect_close(ws, 4403, "Insufficient permissions")
+
+
 # --- heartbeat -------------------------------------------------------------------------
 
 
@@ -495,9 +637,10 @@ async def test_slow_client_is_dropped_instead_of_buffering_forever() -> None:
     connection = Connection(
         cast(WebSocket, object()),  # never used: run() is not started
         user_id=1,
+        property_id=1,
         session_token_hash="h",
         session_expires_at=datetime.now(UTC) + timedelta(hours=1),
-        check_session=lambda: asyncio.sleep(0, result=True),
+        check_access=lambda: asyncio.sleep(0, result=Access.OK),
         heartbeat_seconds=25,
         max_pending=3,
         current_seq=lambda: 0,

@@ -3,7 +3,7 @@ from typing import Annotated
 
 import httpx
 import pytest
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Request
 from httpx import AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,13 +11,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_permission
 from app.core.config import Settings
 from app.core.permissions import DEFAULT_ROLES, P
-from app.models import AuditEvent, AuditEventType, User, UserSession
-from tests.conftest import MakeUser, Roles
+from app.models import AuditEvent, AuditEventType, Property, User, UserSession
+from app.services import permissions as permission_service
+from app.services.permissions import get_default_property_id
+from tests.conftest import USERNAME_FOR_ROLE, LoginAs, MakeUser, Roles
 
 LOGIN: str = "/api/auth/login"
 LOGOUT: str = "/api/auth/logout"
 ME: str = "/api/auth/me"
 GENERIC_LOGIN_ERROR: dict[str, str] = {"detail": "Invalid username or password"}
+
+
+async def property_json(db: AsyncSession) -> dict[str, object]:
+    prop = await db.get(Property, await get_default_property_id(db))
+    assert prop is not None
+    return {"id": prop.id, "name": prop.name, "time_zone": prop.time_zone}
 
 
 def permissions_of(role_name: str) -> list[str]:
@@ -55,6 +63,7 @@ async def test_login_success_sets_session_cookie(
         "id": user.id,
         "username": "frontdesk",
         "full_name": "Frontdesk",
+        "property": await property_json(db_session),
         "role": {"id": body["role"]["id"], "name": "Receptionist"},
         "permissions": permissions_of(Roles.RECEPTIONIST),
     }
@@ -229,7 +238,9 @@ async def test_login_replaces_existing_session(
 # --- me / protected routes -----------------------------------------------------
 
 
-async def test_me_returns_current_user(client: AsyncClient, make_user: MakeUser) -> None:
+async def test_me_returns_current_user(
+    client: AsyncClient, make_user: MakeUser, db_session: AsyncSession
+) -> None:
     user = await make_user("manager", role=Roles.GENERAL_MANAGER)
     await login(client, "manager", "manager-password")
 
@@ -241,10 +252,26 @@ async def test_me_returns_current_user(client: AsyncClient, make_user: MakeUser)
         "id": user.id,
         "username": "manager",
         "full_name": "Manager",
+        "property": await property_json(db_session),
         "role": {"id": body["role"]["id"], "name": "General manager"},
         "permissions": permissions_of(Roles.GENERAL_MANAGER),
     }
     assert "settings.manage" not in body["permissions"]
+
+
+@pytest.mark.parametrize("role", list(USERNAME_FOR_ROLE))
+async def test_me_returns_permissions_of_each_seeded_role(
+    client: AsyncClient, login_as: LoginAs, db_session: AsyncSession, role: str
+) -> None:
+    user = await login_as(role)
+
+    body = (await client.get(ME)).json()
+
+    assert body["id"] == user.id
+    assert body["username"] == USERNAME_FOR_ROLE[role]
+    assert body["property"] == await property_json(db_session)
+    assert body["role"]["name"] == role
+    assert body["permissions"] == permissions_of(role)  # sorted, exactly the role's keys
 
 
 async def test_me_for_user_without_a_role(client: AsyncClient, make_user: MakeUser) -> None:
@@ -391,3 +418,43 @@ async def test_require_permission_needs_session(client: AsyncClient, user_admin_
 def test_require_permission_rejects_unknown_keys() -> None:
     with pytest.raises(ValueError, match="Unknown permission keys"):
         require_permission("rooms.fly")
+
+
+async def test_permissions_are_loaded_once_per_request(
+    app: FastAPI,
+    client: AsyncClient,
+    make_user: MakeUser,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
+    real = permission_service.get_effective_permissions
+
+    async def counting(
+        db: AsyncSession, user_id: int, property_id: int, *, now: datetime | None = None
+    ) -> frozenset[str]:
+        calls.append(user_id)
+        return await real(db, user_id, property_id, now=now)
+
+    monkeypatch.setattr(permission_service, "get_effective_permissions", counting)
+    router = APIRouter()
+
+    @router.get(
+        "/api/test/two-checks",
+        dependencies=[
+            Depends(require_permission(P.DASHBOARD_VIEW)),
+            Depends(require_permission(P.RESERVATION_VIEW)),
+        ],
+    )
+    async def two_checks(request: Request) -> dict[str, list[str]]:
+        return {"cached": sorted(request.state.permissions)}
+
+    app.include_router(router)
+    await make_user("frontdesk", role=Roles.RECEPTIONIST)
+    await login(client)  # the login response loads permissions too
+    calls.clear()
+
+    response = await client.get("/api/test/two-checks")
+
+    assert response.status_code == 200
+    assert response.json()["cached"] == permissions_of(Roles.RECEPTIONIST)
+    assert len(calls) == 1

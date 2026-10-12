@@ -80,10 +80,18 @@ CurrentPropertyId = Annotated[int, Depends(get_current_property_id)]
 
 
 async def get_current_permissions(
-    db: SessionDep, user: CurrentUser, property_id: CurrentPropertyId
+    request: Request, db: SessionDep, user: CurrentUser, property_id: CurrentPropertyId
 ) -> frozenset[str]:
-    """The current user's effective permissions at the current property (once per request)."""
-    return await permission_service.get_effective_permissions(db, user.id, property_id)
+    """The current user's effective permissions at the current property.
+
+    Loaded once per request and cached on request.state.permissions, so several
+    require_permission checks (and any code reading the state) share one lookup.
+    """
+    cached: frozenset[str] | None = getattr(request.state, "permissions", None)
+    if cached is None:
+        cached = await permission_service.get_effective_permissions(db, user.id, property_id)
+        request.state.permissions = cached
+    return cached
 
 
 CurrentPermissions = Annotated[frozenset[str], Depends(get_current_permissions)]
