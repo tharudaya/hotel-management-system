@@ -109,3 +109,28 @@ export const ROOM_ATTENDANT_USER: User = {
   role: { id: 6, name: 'Room attendant' },
   permissions: ['room.update_housekeeping_status'],
 }
+
+export const ADMIN_USER: User = {
+  id: 5,
+  username: 'admin',
+  full_name: 'Ada Admin',
+  property: PROPERTY,
+  role: { id: 1, name: 'Admin' },
+  permissions: [...ALL_PERMISSIONS, 'settings.manage'].sort(),
+}
+
+export const FRONT_OFFICE_MANAGER_USER: User = {
+  id: 6,
+  username: 'fomanager',
+  full_name: 'Flo Office',
+  property: PROPERTY,
+  role: { id: 3, name: 'Front office manager' },
+  permissions: [
+    ...RECEPTIONIST_PERMISSIONS,
+    'payment.refund',
+    'report.view',
+    'reservation.cancel',
+    'room.set_out_of_order',
+    'user.view',
+  ].sort(),
+}

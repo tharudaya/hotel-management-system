@@ -1,13 +1,15 @@
-import { Outlet, useNavigate } from 'react-router'
+import { NavLink, Outlet, useNavigate } from 'react-router'
 
 import { useAuthenticatedUser } from '../auth/currentUser'
-import { can, P } from '../auth/permissions'
+import { ADMIN_PERMISSIONS, can, canAny, P } from '../auth/permissions'
 import { useLogout } from '../auth/queries'
 import { useHotelInfo } from '../dashboard/queries'
 import { formatDate } from '../lib/format'
 import { ConnectionIndicator } from '../realtime/ConnectionIndicator'
 import { useRealtime } from '../realtime/useRealtime'
-import { buttonSecondary } from './styles'
+import { buttonSecondary, focusRing } from './styles'
+import { clearToasts } from './toast'
+import { Toaster } from './Toaster'
 
 /** Shell for signed-in pages: header with the user and a sign-out button. */
 export function AppLayout() {
@@ -18,6 +20,7 @@ export function AppLayout() {
   const realtimeStatus = useRealtime(can(user, P.DASHBOARD_VIEW))
 
   function handleLogout() {
+    clearToasts()
     logout.mutate(undefined, {
       // Leave even if the request failed: the local session state is already cleared.
       onSettled: () => {
@@ -40,7 +43,7 @@ export function AppLayout() {
         Skip to main content
       </a>
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 sm:px-6">
           <div>
             <p className="text-lg leading-tight font-semibold text-slate-900">
               {hotel.data?.name ?? 'Front Desk'}
@@ -54,7 +57,11 @@ export function AppLayout() {
               </p>
             )}
           </div>
-          <div className="flex items-center gap-3 sm:gap-4">
+          <MainNav
+            dashboard={can(user, P.DASHBOARD_VIEW)}
+            admin={canAny(user, ...ADMIN_PERMISSIONS)}
+          />
+          <div className="ml-auto flex items-center gap-3 sm:gap-4">
             {realtimeStatus && <ConnectionIndicator status={realtimeStatus} />}
             <p className="text-right text-sm leading-tight">
               <span className="block font-medium text-slate-900">{user.full_name}</span>
@@ -78,6 +85,37 @@ export function AppLayout() {
       >
         <Outlet />
       </main>
+      <Toaster />
     </div>
+  )
+}
+
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  `rounded-md px-3 py-2 text-sm font-medium ${focusRing} ${
+    isActive ? 'bg-sky-50 text-sky-800' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+  }`
+
+/** Header links, each shown only with the permission behind it. */
+function MainNav({ dashboard, admin }: { dashboard: boolean; admin: boolean }) {
+  if (!dashboard && !admin) return null
+  return (
+    <nav aria-label="Main">
+      <ul className="flex gap-1">
+        {dashboard && (
+          <li>
+            <NavLink to="/" end className={navLinkClass}>
+              Dashboard
+            </NavLink>
+          </li>
+        )}
+        {admin && (
+          <li>
+            <NavLink to="/admin" className={navLinkClass}>
+              Admin
+            </NavLink>
+          </li>
+        )}
+      </ul>
+    </nav>
   )
 }

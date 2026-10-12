@@ -1,6 +1,10 @@
 import type { RouteObject } from 'react-router'
 
+import { AdminIndex, AdminLayout } from './admin/AdminLayout'
+import { AdminAuditPage, AdminRolesPage, AdminUsersPage } from './admin/AdminPages'
+import { ADMIN_PERMISSIONS, P } from './auth/permissions'
 import { ProtectedRoute } from './auth/ProtectedRoute'
+import { RequirePermission } from './auth/RequirePermission'
 import { AppLayout } from './components/AppLayout'
 import { ErrorPage } from './components/ErrorPage'
 import { DashboardPage } from './pages/DashboardPage'
@@ -24,7 +28,44 @@ export const routes: RouteObject[] = [
         children: [
           {
             element: <AppLayout />,
-            children: [{ index: true, element: <DashboardPage /> }],
+            children: [
+              { index: true, element: <DashboardPage /> },
+              {
+                path: '/admin',
+                element: (
+                  <RequirePermission anyOf={ADMIN_PERMISSIONS}>
+                    <AdminLayout />
+                  </RequirePermission>
+                ),
+                children: [
+                  { index: true, element: <AdminIndex /> },
+                  {
+                    path: 'users',
+                    element: (
+                      <RequirePermission permission={P.USER_VIEW}>
+                        <AdminUsersPage />
+                      </RequirePermission>
+                    ),
+                  },
+                  {
+                    path: 'roles',
+                    element: (
+                      <RequirePermission permission={P.ROLE_VIEW}>
+                        <AdminRolesPage />
+                      </RequirePermission>
+                    ),
+                  },
+                  {
+                    path: 'audit',
+                    element: (
+                      <RequirePermission permission={P.AUDIT_VIEW}>
+                        <AdminAuditPage />
+                      </RequirePermission>
+                    ),
+                  },
+                ],
+              },
+            ],
           },
         ],
       },

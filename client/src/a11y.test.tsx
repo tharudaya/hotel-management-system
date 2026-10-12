@@ -7,8 +7,8 @@ import userEvent from '@testing-library/user-event'
 import axe from 'axe-core'
 import { describe, expect, it } from 'vitest'
 
-import { dashboardHandlers, makeReservation } from './test/fixtures'
-import { FRONT_DESK_USER, MANAGER_USER, mockApi, renderApp } from './test/renderApp'
+import { dashboardHandlers, HOTEL, makeReservation } from './test/fixtures'
+import { ADMIN_USER, FRONT_DESK_USER, MANAGER_USER, mockApi, renderApp } from './test/renderApp'
 
 const MANAGER = MANAGER_USER
 
@@ -112,6 +112,37 @@ describe('accessibility (axe)', () => {
     await user.type(screen.getByLabelText('Email address'), '@hotel.example')
     await user.click(screen.getByRole('button', { name: 'Send reset link' }))
     await screen.findByRole('heading', { name: 'Check your email' })
+    await expectNoViolations()
+  })
+
+  it('admin area with side navigation', async () => {
+    mockApi({ 'GET /api/auth/me': () => [200, ADMIN_USER], ...dashboardHandlers() })
+    renderApp('/admin/roles')
+    await screen.findByRole('heading', { name: 'Roles' })
+
+    await expectNoViolations()
+    expect(screen.getByRole('link', { name: 'Roles' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('no-access page', async () => {
+    mockApi({
+      'GET /api/auth/me': () => [200, FRONT_DESK_USER],
+      'GET /api/hotel': () => [200, HOTEL],
+    })
+    renderApp('/admin')
+    await screen.findByRole('heading', { name: 'You do not have access' })
+    await expectNoViolations()
+  })
+
+  it('403 toast', async () => {
+    mockApi({
+      'GET /api/auth/me': () => [200, FRONT_DESK_USER],
+      'GET /api/hotel': () => [200, HOTEL],
+      'GET /api/dashboard/summary': () => [403, { detail: 'Insufficient permissions' }],
+      'GET /api/dashboard/rooms': () => [403, { detail: 'Insufficient permissions' }],
+    })
+    renderApp('/')
+    await screen.findByRole('button', { name: 'Dismiss' })
     await expectNoViolations()
   })
 

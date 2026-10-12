@@ -90,6 +90,8 @@ export function useRoomAction() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: runAction,
+    // RoomActions shows a 403 inline in the panel; /me is still refetched globally.
+    meta: { handlesForbidden: true },
     onSuccess: (room) => {
       queryClient.setQueryData<DashboardRooms>(dashboardKeys.rooms, (current) =>
         current
