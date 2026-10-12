@@ -14,7 +14,7 @@ A hotel management system. The first feature is the **front desk dashboard**:
   - flags (e.g. maintenance, VIP, do-not-disturb; defined per room)
 - The dashboard updates in real time as room status changes.
 
-Status: server has data model + dev seed, auth (`/api/auth/*`), dashboard reads (`GET /api/dashboard/rooms`, `/summary`) and actions (`POST /api/reservations/{id}/check-in|check-out`, `PATCH /api/rooms/{id}/housekeeping-status`) publishing to an in-process event bus, and the WebSocket hub at `/ws`. Not yet: client. `client/` holds only a README.
+Status: server has data model + dev seed, auth (`/api/auth/*`), dashboard reads (`GET /api/dashboard/rooms`, `/summary`) and actions (`POST /api/reservations/{id}/check-in|check-out`, `PATCH /api/rooms/{id}/housekeeping-status`) publishing to an in-process event bus, and the WebSocket hub at `/ws`. Client has login, protected routes, and the dashboard page (summary, filters, room grid, detail panel with actions). The dashboard is live over the WebSocket.
 
 ## Architecture
 
@@ -32,6 +32,12 @@ docker-compose.yml   PostgreSQL (and later other services)
 - React Router for routing
 - TanStack Query for server state (fetching, caching, invalidation)
 - WebSocket messages update the TanStack Query cache; do not keep a second copy of server state in component state
+- Versions: React 19, React Router 8 (data mode: `createBrowserRouter` from `react-router`, `RouterProvider` from `react-router/dom`; there is no `react-router-dom`), Tailwind v4 via `@tailwindcss/vite` (`@import "tailwindcss"`, no config file), Vitest 5, ESLint 10 flat config. TypeScript pinned to 6.0 (typescript-eslint does not support 7).
+- All requests go through `src/api/client.ts` `apiFetch` (relative `/api/...` paths, `credentials: 'include'`, throws `ApiError` with `status`/`code`; 401 redirects to /login unless `redirectOnUnauthorized: false`). Response types come from generated `src/api/schema.ts` via `src/api/types.ts`; never hand-write API types.
+- Routing: `src/routes.tsx` is the route table (browser router in `main.tsx`, memory router in tests). Signed-in pages sit under `ProtectedRoute` (redirects to /login on 401 only, remembering `from`) and `AppLayout` (header + sign out); read the user with `useAuthenticatedUser()`.
+- Dashboard (`src/dashboard/`): data hooks and query keys in `queries.ts` (`useRoomAction` updates the rooms cache from the response and invalidates `['dashboard']` + `['reservations']`); filters live in the URL (`filters.ts`, params `floor,type,occupancy,hk,q,view` plus `room` for the open panel); status labels/icons/colors and tile accessible labels in `status.ts` (never color alone); `housekeeping.ts` mirrors the server transition table for UI only. Housekeeping buttons show for manager/admin only (server returns 403 for front desk).
+- Realtime (`src/realtime/`): `connection.ts` is a framework-free `RealtimeConnection` (pong replies, per-connection seq baseline from `hello`, ignores seq <= last, resyncs on gaps, 50 ms batching, exponential backoff with jitter capped at 30 s, no retry after 4401/4403). `cache.ts` `applyEvents` patches the rooms/summary caches (version-guarded; unchanged rooms keep identity so memoised tiles skip renders). `useRealtime` (mounted once in `AppLayout`, dashboard roles only) refetches the snapshot on every `hello` and replays events received during that refetch. The header shows `ConnectionIndicator`.
+- Client tests: `src/test/renderApp.tsx` renders the real routes at a path; `mockApi({'GET /api/...': () => [status, body]})` fakes the backend and fails on unexpected requests. Query by role/label (accessibility-first). A `FakeWebSocket` is installed globally in test setup (drive it with `FakeWebSocket.latest().hello()/receive()/serverClose()`). Shared data in `src/test/fixtures.ts` (`ROOMS` covers every status; `dashboardHandlers()` for pages that just need the dashboard to load).
 
 ### Server (`/server`)
 - Python, FastAPI
@@ -61,6 +67,8 @@ docker-compose.yml   PostgreSQL (and later other services)
 - Event bus (`app/realtime/bus.py`, on `app.state.event_bus`) is in-process only; multiple instances need Redis pub/sub or Postgres LISTEN/NOTIFY (see the scaling note in `app/realtime/hub.py`).
 - WebSocket `/ws` (protocol documented at the top of `app/realtime/hub.py`): messages are `{type, seq, payload}`; `seq` increments only for broadcast events (`room_status_changed`, `summary_changed`); `hello`/`ping` carry the latest seq. Client must answer `ping` with `{"type":"pong"}`. Close codes: 4401 unauthenticated/session ended, 4403 forbidden (role or Origin), 4408 heartbeat timeout, 1013 too slow. Dashboard roles only. Clients should connect first, then fetch REST, then apply events; refetch on a seq gap or reconnect.
 - Mutations publish room events then one `summary_changed`; logout/re-login publish an internal `session_ended` the hub uses to close that session's sockets.
+- Security (server): `app/core/security_middleware.py` refuses state-changing `/api` requests whose `Origin` is not in `CORS_ORIGINS` (or same origin) and adds security headers + `Cache-Control: no-store` on `/api`. `Settings` refuses unsafe production values (insecure cookie, weak `SESSION_SECRET`, `*` origin); production hides `/docs` and `/openapi.json`.
+- Every REST operation must be listed in `ACCESS` in `tests/test_security.py` (who may call it); that test fails for unclassified endpoints and checks 401/403 for every role.
 - Driver note: use asyncpg, not psycopg async; psycopg's async mode does not work with the default Windows event loop.
 
 ### Database
@@ -93,13 +101,15 @@ docker-compose.yml   PostgreSQL (and later other services)
 
 ## Commands
 
+Full stack in Docker (from the repo root; needs `.env`): `docker compose up --build -d` (db + server with migrations and reload + client on :5173); seed with `docker compose exec server python -m app.scripts.seed --reset`; server tests with `docker compose exec server pytest`. The server image keeps its venv in `/opt/venv`; the client container keeps Linux `node_modules` in a volume.
+
 Database (from the repo root; needs a `.env` copied from `.env.example`):
 - start: `docker compose up -d db`
 - check health: `docker compose ps` (STATUS should show `healthy`)
 - psql shell: `docker compose exec db psql -U hotel -d hotel`
 - stop: `docker compose down` (add `-v` to delete the data volume)
 
-Server (from `server/`; uv may need to be invoked as `python -m uv` if its Scripts dir is not on PATH):
+Server (from `server/`; uv may need to be invoked as `python -m uv` if its Scripts dir is not on PATH; if the project venv is activated, `python` is `.venv` Python without uv, so use `.venv/Scripts/python -m <module>` or deactivate):
 - install: `uv sync`
 - migrate: `uv run alembic upgrade head`; new migration: `uv run alembic revision --autogenerate -m "..."`
 - seed dev data: `uv run python -m app.scripts.seed` (`--reset` wipes app tables first); dev logins are `<username>` / `<username>-dev-pass` for frontdesk, housekeeping, manager, admin
@@ -107,5 +117,9 @@ Server (from `server/`; uv may need to be invoked as `python -m uv` if its Scrip
 - test: `uv run pytest` (needs the db container; uses TEST_DATABASE_URL). API tests share one rolled-back transaction via the `app`/`client`/`db_session` fixtures; use `make_user` to create users. WebSocket tests need committed data: use `live_db` + `async with live_clients(test_settings) as make:` (not a fixture, because of anyio task-group rules)
 - lint/format/types: `uv run ruff check .`, `uv run ruff format .`, `uv run mypy app tests alembic/env.py`
 
-Not set up yet; record here once they exist:
-- install and run the client, type-check, lint, build
+Client (from `client/`):
+- install: `npm install`
+- run: `npm run dev` (http://localhost:5173; proxies `/api` and `/ws` to `BACKEND_URL`, default http://localhost:8000)
+- checks: `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm test` (includes axe-core accessibility tests in `src/a11y.test.tsx`), `npm run build`
+- end-to-end (needs db, backend seeded with `--reset`, and `npm run dev` running): `npm run test:e2e` (two logged-in clients; a check-out in one must reach the other within 1 s)
+- API types: `npm run generate:api` with the server running; commit `src/api/schema.ts`

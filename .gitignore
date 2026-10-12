@@ -2,6 +2,11 @@
 .env
 .env.*
 !.env.example
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Python
 __pycache__/
@@ -14,6 +19,7 @@ venv/
 .ruff_cache/
 .coverage
 htmlcov/
+coverage/
 build/
 dist/
 
@@ -24,6 +30,7 @@ client/dist/
 npm-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+*.log
 .vite/
 
 # Editors / OS

@@ -1,39 +1,172 @@
 # Hotel Management System
 
-A hotel management system, starting with a live front desk dashboard of all rooms.
+A hotel management system, starting with a **live front desk dashboard**: staff sign in and
+see every room's occupancy, housekeeping status, current guest and flags, updated in real
+time as anyone checks guests in or out or changes a room's status.
 
-- `client/`: React + TypeScript front end
-- `server/`: FastAPI back end
-- `docker-compose.yml`: PostgreSQL for local development
+- `server/` — FastAPI, PostgreSQL, SQLAlchemy (async), WebSocket hub ([server/README.md](server/README.md))
+- `client/` — React, TypeScript, Vite, Tailwind, TanStack Query ([client/README.md](client/README.md))
+- `docker-compose.yml` — database, API and client for local development
+- `CLAUDE.md` — conventions and design rules for anyone (human or AI) changing the code
 
-## Prerequisites
+## Quick start (Docker)
 
-- Docker with Docker Compose v2 (`docker compose`)
+Requires Docker with Compose v2.
 
-## Start the database
+```sh
+cp .env.example .env
+# Edit .env: set POSTGRES_PASSWORD (and the same password inside DATABASE_URL and
+# TEST_DATABASE_URL), and set SESSION_SECRET to a random value:
+#   python -c "import secrets; print(secrets.token_urlsafe(64))"
 
-1. Create your local env file and set real values (at least `POSTGRES_PASSWORD`, `SESSION_SECRET`, and the password inside `DATABASE_URL`):
+docker compose up --build -d                                   # db + server + client
+docker compose exec server python -m app.scripts.seed --reset   # demo data for today
+```
 
-   ```sh
-   cp .env.example .env
-   ```
+Open **http://localhost:5173** and sign in (see [Demo accounts](#demo-accounts)). The API is
+on http://localhost:8000 (interactive docs at `/docs`). Code changes reload automatically
+in both containers. Stop with `docker compose down`; add `-v` to also delete the database.
 
-2. Start PostgreSQL in the background:
+## Local development without Docker for the apps
 
-   ```sh
-   docker compose up -d db
-   ```
+Requires Python 3.14 with [uv](https://docs.astral.sh/uv/) and Node 22.22+. The database
+still runs in Docker.
 
-3. Check that it is healthy (the `STATUS` column should show `healthy`):
+```sh
+cp .env.example .env              # as above; keep DATABASE_URL pointing at localhost
+docker compose up -d db
 
-   ```sh
-   docker compose ps
-   ```
+cd server
+uv sync
+uv run alembic upgrade head
+uv run python -m app.scripts.seed --reset
+uv run uvicorn app.main:create_app --factory --reload      # http://localhost:8000
 
-4. Optionally open a psql shell:
+cd ../client                      # in a second terminal
+npm install
+npm run dev                       # http://localhost:5173 (proxies /api and /ws)
+```
 
-   ```sh
-   docker compose exec db psql -U hotel -d hotel
-   ```
+For plain-HTTP local development set `SESSION_COOKIE_SECURE=false` in `.env`.
+Don't run both this and the Docker apps at once: they use the same ports.
 
-Stop it with `docker compose down`. Data is kept in the `hotel-db-data` volume; `docker compose down -v` deletes it.
+## Demo accounts
+
+Created by the seed script, **for development only** (the script refuses to run when
+`ENVIRONMENT=production`):
+
+| Role         | Username       | Password                | Can do                                         |
+| ------------ | -------------- | ----------------------- | ---------------------------------------------- |
+| Front desk   | `frontdesk`    | `frontdesk-dev-pass`    | Dashboard, check in, check out                 |
+| Manager      | `manager`      | `manager-dev-pass`      | Everything front desk can, plus housekeeping   |
+| Admin        | `admin`        | `admin-dev-pass`        | Same as manager                                |
+| Housekeeping | `housekeeping` | `housekeeping-dev-pass` | Housekeeping status API only (no dashboard UI) |
+
+The seed creates 40 rooms on 4 floors with today's arrivals, departures, stayovers, a
+turnover room (departure and arrival on the same day), vacant and out-of-order rooms.
+"Today" is the hotel's business date (`HOTEL_TIMEZONE`); reseed with `--reset` on another
+day to get fresh data.
+
+## Tests and checks
+
+| What                         | Command                                                                                         |
+| ---------------------------- | ----------------------------------------------------------------------------------------------- |
+| Server tests (pytest)        | `cd server && uv run pytest` (needs the db container)                                           |
+| Server lint / format / types | `uv run ruff check .` · `uv run ruff format --check .` · `uv run mypy app tests alembic/env.py` |
+| Migrations match models      | `uv run alembic check`                                                                          |
+| Client tests (Vitest + RTL)  | `cd client && npm test`                                                                         |
+| Client lint / format / types | `npm run lint` · `npm run format:check` · `npm run typecheck`                                   |
+| Client production build      | `npm run build`                                                                                 |
+| End-to-end realtime check    | `npm run test:e2e` (needs the full stack running and freshly seeded)                            |
+| Server tests in Docker       | `docker compose exec server pytest`                                                             |
+
+The server suite runs against a separate `hotel_test` database that it creates and
+migrates itself. The client suite includes automated accessibility checks (axe-core) for
+the login page, dashboard and detail panel. The end-to-end check logs in twice, checks a
+guest out in one session and requires the other to see it within one second.
+
+## Architecture
+
+```
+ Browser (React SPA)                     FastAPI server                      PostgreSQL
+ ───────────────────                     ──────────────                      ──────────
+ TanStack Query cache ── REST /api ───▶  routers (thin) ──▶ services ──────▶ rooms, reservations,
+   ▲                    (cookie)                            │  one tx,        guests, users,
+   │                                                        │  audit row      sessions, audit_events
+   │                                                        ▼
+   └──── WebSocket /ws ◀── hub ◀── in-process event bus ◀── publish after commit
+         (cookie)          seq numbers, heartbeat
+```
+
+- **One origin.** In development Vite serves the app and proxies `/api` and `/ws` to the
+  API, so the session cookie is first-party and the browser never makes cross-origin calls.
+- **Auth.** Username and password (Argon2 hashes) create a server-side session. The cookie
+  carries only a random token; the database stores its HMAC. Sessions can be revoked, and
+  logging out closes that session's WebSockets. Failed logins are rate limited and audited.
+- **Roles are enforced on the server** for every route (a test lists who may call each
+  operation and fails if a new endpoint isn't classified). The client only hides UI.
+- **Reads.** `GET /api/dashboard/rooms` and `/summary` derive each room's occupancy
+  (vacant, occupied, arriving today, departing today, out of order) from reservations, for
+  the hotel's business date, in a fixed number of queries.
+- **Writes go through REST only.** Check-in, check-out and housekeeping changes each run
+  in one transaction with an audit row, are validated in the service layer (allowed
+  housekeeping transitions are an explicit table), and use the room's `version` for
+  optimistic locking: a stale or concurrent change gets `409` and the client refetches.
+- **Realtime.** After a write commits, the service publishes `room_status_changed` (the
+  room's new dashboard entry) and `summary_changed`. The hub numbers events and pushes
+  them to every dashboard. The client patches its cache from events (batched, version
+  guarded), refetches the full snapshot after every (re)connect or sequence gap, and shows
+  Live / Reconnecting / Offline in the header.
+
+More detail: [server/README.md](server/README.md), [client/README.md](client/README.md),
+the WebSocket protocol at the top of `server/app/realtime/hub.py`, and `CLAUDE.md`.
+
+### Security summary
+
+- Session cookie: `HttpOnly`, `SameSite=Lax`, `Secure` (required in production).
+- CORS allows only the origins in `CORS_ORIGINS`, with credentials; `*` is rejected.
+- State-changing API requests and WebSocket connections from any other `Origin` are refused.
+- Responses carry `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`;
+  API responses are `Cache-Control: no-store` (they contain guest data).
+- Production refuses to start with insecure cookies or a weak `SESSION_SECRET`, and hides
+  `/docs` and `/openapi.json`.
+- Input is validated by Pydantic schemas (lengths, ranges, enums); database constraints
+  back up the business rules (no double-booking, one guest party per room, valid dates).
+- Secrets live only in `.env` (git-ignored); `.env.example` lists every setting.
+
+## Configuration
+
+All settings are environment variables, documented in [.env.example](.env.example). The
+most important: `DATABASE_URL`, `SESSION_SECRET`, `SESSION_COOKIE_SECURE`, `CORS_ORIGINS`,
+`HOTEL_TIMEZONE`, `HOTEL_NAME`, `ENVIRONMENT`.
+
+## Known limitations and next steps
+
+1. **Single server process.** The event bus is in-process; running several API instances
+   needs Redis pub/sub or Postgres LISTEN/NOTIFY (and a shared sequence). Until then, run one.
+2. **No production deployment yet.** Only development images exist. A production setup
+   needs a built client served as static files, a non-reload server image, TLS, a
+   Content-Security-Policy, and `--forwarded-allow-ips` so client IPs (used for login
+   throttling and audit) are correct behind a proxy.
+3. **Unassigned arrivals can't be checked in from the dashboard.** They are counted in the
+   summary but have no tile; a "today's arrivals" list with room assignment is needed.
+4. **No user management.** Users exist only via the seed script; there is no UI or API to
+   create users, reset passwords or revoke sessions, and no password policy.
+5. **Housekeeping role has no UI.** Housekeeping can use the API but the dashboard is for
+   front desk roles; a housekeeping view is a natural next feature.
+6. **Expired sessions and audit rows are never purged.** Add a periodic cleanup job and a
+   retention policy for `audit_events` (it contains IP addresses).
+7. **Early check-out keeps the booked dates**, so it is not counted in "departures today".
+8. **The client copies the housekeeping transition table** to decide which buttons to show;
+   keep it in sync with the server (or serve it from an endpoint).
+9. **`npm run generate:api` needs the server running**; a schema export script would let CI
+   check that the generated types are current.
+10. **Do-not-disturb flag is missing.** The original brief lists per-room flags
+    (maintenance, VIP, do-not-disturb). Maintenance is covered by "out of order" and VIP by
+    the reservation, but there is no do-not-disturb flag yet (needs a column, an action and
+    a tile badge).
+11. **Login throttling can lock out a known username** for 15 minutes after five wrong
+    passwords (by design, but an attacker can use it to annoy a user). Consider throttling
+    per username _and_ IP pair, CAPTCHA, or alerting instead.
+12. **TypeScript is pinned to 6.0** until `typescript-eslint` supports 7, and
+    `openapi-typescript` uses an npm override for its TypeScript peer.

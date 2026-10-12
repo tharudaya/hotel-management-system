@@ -1,3 +1,11 @@
+# Local development stack.
+#
+#   docker compose up -d db       database only (run server and client on the host)
+#   docker compose up --build     database + API + client, with live reload
+#
+# Everything reads the root .env (copy .env.example first). Values below override
+# what must differ inside containers.
+
 services:
   db:
     image: postgres:18
@@ -20,5 +28,59 @@ services:
       retries: 10
       start_period: 10s
 
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    container_name: hotel-server
+    env_file: .env
+    environment:
+      # Inside the network the database host is "db", not localhost.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      TEST_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}_test
+      ENVIRONMENT: development
+      # Plain HTTP in development; production must use true (enforced at startup).
+      SESSION_COOKIE_SECURE: "false"
+      CORS_ORIGINS: http://localhost:5173
+      # File events from a host mount don't reach Linux containers on Windows/macOS.
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./server:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  client:
+    image: node:24-alpine
+    container_name: hotel-client
+    working_dir: /app
+    # npm ci on start keeps the container's node_modules in sync with package-lock.
+    command: sh -c "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 5173"
+    environment:
+      BACKEND_URL: http://server:8000
+      DEV_USE_POLLING: "true"
+    volumes:
+      - ./client:/app
+      # Linux node_modules in a volume: the host's may hold Windows-only binaries.
+      - client-node-modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      server:
+        condition: service_healthy
+
 volumes:
   hotel-db-data:
+  client-node-modules:
