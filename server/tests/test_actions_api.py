@@ -244,8 +244,13 @@ async def test_check_in_unassigned_reservation(
 @pytest.mark.parametrize(
     ("reservation", "room", "code", "message"),
     [
-        ("arrival", "103", "room_not_ready", "Room 103 is dirty; it must be clean or inspected."),
-        ("arrival", "106", "room_not_ready", "Room 106 is out_of_order; it must be clean or"),
+        (
+            "arrival",
+            "103",
+            "room_not_ready",
+            "Room 103 is dirty; it must be cleaned first (awaiting inspection or ready).",
+        ),
+        ("arrival", "106", "room_not_ready", "Room 106 is out of order; it must be cleaned first"),
         ("arrival", "105", "room_type_mismatch", "Room 105 is not of the reserved room type."),
         ("unassigned", "104", "room_not_vacant", "Room 104 is occupied."),
         ("unassigned", "101", "room_not_vacant", "Room 101 is assigned to another reservation"),
@@ -528,8 +533,8 @@ async def test_housekeeping_invalid_transition(
     assert response.status_code == 409
     assert response.json() == {
         "detail": (
-            "Cannot change housekeeping status from out_of_order to clean. "
-            "Allowed from out_of_order: dirty."
+            "Cannot change housekeeping status from Out of order to Inspection. "
+            "Allowed from Out of order: Dirty."
         ),
         "code": "invalid_transition",
     }

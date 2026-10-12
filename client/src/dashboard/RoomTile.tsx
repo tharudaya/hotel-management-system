@@ -63,7 +63,10 @@ export const RoomTile = memo(function RoomTile({ room, selected, onSelect }: Roo
       {!(
         room.occupancy_status === 'out_of_order' && room.housekeeping_status === 'out_of_order'
       ) && (
-        <span className="mt-auto inline-flex items-center gap-1 text-xs text-slate-700">
+        <span
+          data-housekeeping-pill
+          className={`mt-auto inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold ${housekeeping.pill}`}
+        >
           <HousekeepingIcon aria-hidden className="size-3.5" />
           {housekeeping.label}
         </span>

@@ -13,6 +13,26 @@ from app.services.room_changes import commit, ensure_version, load_room, publish
 
 HK = HousekeepingStatus
 
+# Names staff see (must match HOUSEKEEPING labels in client/src/dashboard/status.ts).
+# "clean" is shown as "Inspection" (cleaned, awaiting inspection) and "inspected" as
+# "Ready"; both can be checked in.
+HOUSEKEEPING_LABELS: dict[HousekeepingStatus, str] = {
+    HK.DIRTY: "Dirty",
+    HK.IN_PROGRESS: "Cleaning",
+    HK.CLEAN: "Inspection",
+    HK.INSPECTED: "Ready",
+    HK.OUT_OF_ORDER: "Out of order",
+}
+
+# The same states inside a sentence ("Room 103 is ...").
+HOUSEKEEPING_PHRASES: dict[HousekeepingStatus, str] = {
+    HK.DIRTY: "dirty",
+    HK.IN_PROGRESS: "being cleaned",
+    HK.CLEAN: "awaiting inspection",
+    HK.INSPECTED: "ready",
+    HK.OUT_OF_ORDER: "out of order",
+}
+
 # Every allowed change of housekeeping status. Anything else is rejected.
 #   dirty        -> in_progress (cleaning started), clean (cleaned in one go),
 #                   out_of_order
@@ -35,10 +55,12 @@ def validate_housekeeping_transition(
 ) -> None:
     allowed = HOUSEKEEPING_TRANSITIONS[current]
     if target not in allowed:
-        options = ", ".join(sorted(s.value for s in allowed))
+        # In the order the statuses are defined (Dirty, Cleaning, Inspection, ...).
+        options = ", ".join(HOUSEKEEPING_LABELS[s] for s in HK if s in allowed)
+        current_label = HOUSEKEEPING_LABELS[current]
         raise InvalidTransitionError(
-            f"Cannot change housekeeping status from {current.value} to {target.value}. "
-            f"Allowed from {current.value}: {options}."
+            f"Cannot change housekeeping status from {current_label} to "
+            f"{HOUSEKEEPING_LABELS[target]}. Allowed from {current_label}: {options}."
         )
 
 

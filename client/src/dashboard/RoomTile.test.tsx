@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { DashboardRoom, OccupancyStatus } from '../api/types'
+import type { DashboardRoom, HousekeepingStatus, OccupancyStatus } from '../api/types'
 import { makeRoom } from '../test/fixtures'
 import { RoomTile } from './RoomTile'
 
@@ -23,7 +23,7 @@ const CASES: {
     room: { housekeeping_status: 'inspected' },
     visibleLabel: 'Vacant',
     colorClass: 'bg-emerald-50',
-    accessibleName: 'Room 304, vacant, inspected',
+    accessibleName: 'Room 304, vacant, ready',
   },
   {
     status: 'occupied',
@@ -37,7 +37,7 @@ const CASES: {
     room: { housekeeping_status: 'clean', guest_name: 'Grace Hopper', has_arrival_today: true },
     visibleLabel: 'Arriving',
     colorClass: 'bg-amber-50',
-    accessibleName: 'Room 304, arriving today, clean, guest Grace Hopper',
+    accessibleName: 'Room 304, arriving today, awaiting inspection, guest Grace Hopper',
   },
   {
     status: 'departing_today',
@@ -119,5 +119,23 @@ describe('RoomTile', () => {
 
     expect(onSelect).toHaveBeenCalledTimes(2)
     expect(onSelect).toHaveBeenCalledWith(7)
+  })
+
+  it.each<[HousekeepingStatus, string, string[]]>([
+    ['dirty', 'Dirty', ['bg-rose-100', 'text-rose-900', 'border-rose-300']],
+    ['in_progress', 'Cleaning', ['bg-amber-100', 'text-amber-950', 'border-amber-300']],
+    ['clean', 'Inspection', ['bg-sky-200', 'text-sky-950', 'border-sky-400']],
+    ['inspected', 'Ready', ['bg-emerald-100', 'text-emerald-900', 'border-emerald-300']],
+    ['out_of_order', 'Out of order', ['bg-slate-300', 'text-slate-900', 'border-slate-400']],
+  ])('shows housekeeping %s as a colored, bordered pill', (status, label, classes) => {
+    // Occupied, so an out-of-order housekeeping status is not hidden as a duplicate.
+    const { tile } = renderTile(
+      makeRoom({ occupancy_status: 'occupied', housekeeping_status: status }),
+    )
+
+    const pill = tile.querySelector('[data-housekeeping-pill]')
+    expect(pill).toHaveTextContent(label)
+    expect(pill).toHaveClass('rounded-full', 'border', ...classes)
+    expect(pill?.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
   })
 })

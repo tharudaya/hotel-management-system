@@ -68,7 +68,10 @@ export function RoomDetailPanel({ room, onClose }: RoomDetailPanelProps) {
             <OccupancyIcon aria-hidden className="size-4" />
             {occupancy.label}
           </span>
-          <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 font-medium text-slate-800">
+          <span
+            data-housekeeping-pill
+            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-medium ${housekeeping.pill}`}
+          >
             <HousekeepingIcon aria-hidden className="size-4" />
             {housekeeping.label}
           </span>

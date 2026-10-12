@@ -66,7 +66,7 @@ export function RoomActions({ room }: { room: DashboardRoom }) {
               </button>
               {!ready && (
                 <p id={hintId} className="text-sm text-slate-600">
-                  The room must be clean or inspected before check-in.
+                  The room must be cleaned (awaiting inspection or ready) before check-in.
                 </p>
               )}
             </>
@@ -110,14 +110,14 @@ export function RoomActions({ room }: { room: DashboardRoom }) {
                       status,
                       version: room.version,
                     },
-                    `Room ${room.number} marked ${HOUSEKEEPING[status].label.toLowerCase()}.`,
+                    HOUSEKEEPING[status].done(room.number),
                   )
                 }}
                 className={buttonSecondary}
               >
                 {pending?.kind === 'housekeeping' && pending.status === status
                   ? 'Saving…'
-                  : `Mark ${HOUSEKEEPING[status].label.toLowerCase()}`}
+                  : HOUSEKEEPING[status].action}
               </button>
             ))}
           </div>
@@ -145,7 +145,7 @@ function describeError(error: Error, roomNumber: string): string {
       return `Room ${roomNumber} was changed by someone else. The latest details are now shown; please check them and try again.`
     }
     // Other conflicts are business rules with a message written for staff
-    // (e.g. "Room 103 is dirty; it must be clean or inspected.").
+    // (e.g. "Room 103 is dirty; it must be cleaned first (awaiting inspection or ready).").
     if (error.status === 409) return error.message
     if (error.status === 404) {
       return 'This room or reservation no longer exists. The dashboard has been refreshed.'

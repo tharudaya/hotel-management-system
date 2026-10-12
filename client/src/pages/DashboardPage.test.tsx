@@ -283,7 +283,7 @@ describe('room actions', () => {
     )
   })
 
-  it('disables check-in until the room is clean or inspected', async () => {
+  it('disables check-in until the room is cleaned (inspection or ready)', async () => {
     dashboardApi({
       'GET /api/reservations/14': () => [200, makeReservation({ id: 14, status: 'confirmed' })],
     })
@@ -293,7 +293,7 @@ describe('room actions', () => {
     const checkIn = within(panel).getByRole('button', { name: 'Check in' })
     expect(checkIn).toBeDisabled()
     expect(checkIn).toHaveAccessibleDescription(
-      'The room must be clean or inspected before check-in.',
+      'The room must be cleaned (awaiting inspection or ready) before check-in.',
     )
   })
 
@@ -311,7 +311,7 @@ describe('room actions', () => {
     const user = userEvent.setup()
     const panel = await openRoom('101')
 
-    // inspected -> dirty or out of order, per the transition table
+    // Ready (inspected) -> dirty or out of order, per the transition table
     const buttons = within(panel)
       .getAllByRole('button', { name: /^Mark/ })
       .map((b) => b.textContent)
@@ -322,6 +322,37 @@ describe('room actions', () => {
     expect(await within(panel).findByRole('status')).toHaveTextContent('Room 101 marked dirty.')
     const call = fetchMock.mock.calls.find(([p]) => p === '/api/rooms/1/housekeeping-status')
     expect(call?.[1]?.body).toBe('{"status":"dirty","version":1}')
+  })
+
+  it('names housekeeping actions for what they do', async () => {
+    dashboardApi(
+      {
+        'PATCH /api/rooms/2/housekeeping-status': () => [
+          200,
+          { ...fixtureRoom(2), housekeeping_status: 'clean', version: 2 },
+        ],
+        'GET /api/reservations/11': () => [200, makeReservation({ id: 11 })],
+      },
+      MANAGER,
+    )
+    renderApp('/')
+    const user = userEvent.setup()
+    const panel = await openRoom('102') // dirty
+
+    const buttons = within(panel)
+      .getAllByRole('group', { name: 'Housekeeping' })[0]
+      ?.querySelectorAll('button')
+    expect([...(buttons ?? [])].map((b) => b.textContent)).toEqual([
+      'Start cleaning',
+      'Send to inspection',
+      'Mark out of order',
+    ])
+
+    await user.click(within(panel).getByRole('button', { name: 'Send to inspection' }))
+
+    expect(await within(panel).findByRole('status')).toHaveTextContent(
+      'Room 102 sent to inspection.',
+    )
   })
 
   it('hides housekeeping changes from front desk', async () => {

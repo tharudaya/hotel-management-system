@@ -4,7 +4,11 @@ import pytest
 
 from app.models import HousekeepingStatus
 from app.services.errors import InvalidTransitionError
-from app.services.rooms import HOUSEKEEPING_TRANSITIONS, validate_housekeeping_transition
+from app.services.rooms import (
+    HOUSEKEEPING_LABELS,
+    HOUSEKEEPING_TRANSITIONS,
+    validate_housekeeping_transition,
+)
 
 HK = HousekeepingStatus
 
@@ -46,7 +50,8 @@ def test_disallowed_transitions(current: HousekeepingStatus, target: Housekeepin
         validate_housekeeping_transition(current, target)
 
     assert exc_info.value.code == "invalid_transition"
-    assert f"from {current.value} to {target.value}" in exc_info.value.message
+    labels = HOUSEKEEPING_LABELS
+    assert f"from {labels[current]} to {labels[target]}" in exc_info.value.message
 
 
 def test_error_message_lists_allowed_targets() -> None:
@@ -54,6 +59,20 @@ def test_error_message_lists_allowed_targets() -> None:
         validate_housekeeping_transition(HK.OUT_OF_ORDER, HK.CLEAN)
 
     assert exc_info.value.message == (
-        "Cannot change housekeeping status from out_of_order to clean. "
-        "Allowed from out_of_order: dirty."
+        "Cannot change housekeeping status from Out of order to Inspection. "
+        "Allowed from Out of order: Dirty."
+    )
+
+
+def test_labels_cover_every_status() -> None:
+    assert set(HOUSEKEEPING_LABELS) == set(HousekeepingStatus)
+
+
+def test_message_lists_allowed_targets_in_status_order() -> None:
+    with pytest.raises(InvalidTransitionError) as exc_info:
+        validate_housekeeping_transition(HK.INSPECTED, HK.CLEAN)
+
+    assert exc_info.value.message == (
+        "Cannot change housekeeping status from Ready to Inspection. "
+        "Allowed from Ready: Dirty, Out of order."
     )

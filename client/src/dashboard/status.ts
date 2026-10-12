@@ -60,12 +60,63 @@ export const OCCUPANCY: Record<OccupancyStatus, StatusStyle> = {
   },
 }
 
-export const HOUSEKEEPING: Record<HousekeepingStatus, { label: string; icon: LucideIcon }> = {
-  dirty: { label: 'Dirty', icon: Trash2 },
-  in_progress: { label: 'Cleaning', icon: Loader },
-  clean: { label: 'Clean', icon: Sparkles },
-  inspected: { label: 'Inspected', icon: BadgeCheck },
-  out_of_order: { label: 'Out of order', icon: Ban },
+/**
+ * Staff-facing names: "clean" is shown as Inspection (cleaned, awaiting inspection) and
+ * "inspected" as Ready; both can be checked in. The server uses the same names in its
+ * messages (HOUSEKEEPING_LABELS in server/app/services/rooms.py).
+ *
+ * Housekeeping labels reuse the occupancy palette (rose for dirty, which has no
+ * occupancy counterpart). They are rounded, bordered pills so they can't be mistaken
+ * for the square occupancy labels of the same color, and the border keeps them visible
+ * on a tile of the same hue.
+ */
+export const HOUSEKEEPING: Record<
+  HousekeepingStatus,
+  {
+    label: string
+    icon: LucideIcon
+    pill: string
+    /** Button that moves a room to this status. */
+    action: string
+    /** Confirmation after moving a room to this status. */
+    done: (roomNumber: string) => string
+  }
+> = {
+  dirty: {
+    label: 'Dirty',
+    icon: Trash2,
+    pill: 'bg-rose-100 text-rose-900 border-rose-300',
+    action: 'Mark dirty',
+    done: (n) => `Room ${n} marked dirty.`,
+  },
+  in_progress: {
+    label: 'Cleaning',
+    icon: Loader,
+    pill: 'bg-amber-100 text-amber-950 border-amber-300',
+    action: 'Start cleaning',
+    done: (n) => `Cleaning started in room ${n}.`,
+  },
+  clean: {
+    label: 'Inspection',
+    icon: Sparkles,
+    pill: 'bg-sky-200 text-sky-950 border-sky-400',
+    action: 'Send to inspection',
+    done: (n) => `Room ${n} sent to inspection.`,
+  },
+  inspected: {
+    label: 'Ready',
+    icon: BadgeCheck,
+    pill: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+    action: 'Mark ready',
+    done: (n) => `Room ${n} marked ready.`,
+  },
+  out_of_order: {
+    label: 'Out of order',
+    icon: Ban,
+    pill: 'bg-slate-300 text-slate-900 border-slate-400',
+    action: 'Mark out of order',
+    done: (n) => `Room ${n} marked out of order.`,
+  },
 }
 
 export const OCCUPANCY_ORDER: OccupancyStatus[] = [
@@ -95,8 +146,8 @@ const OCCUPANCY_SPOKEN: Record<OccupancyStatus, string> = {
 const HOUSEKEEPING_SPOKEN: Record<HousekeepingStatus, string> = {
   dirty: 'dirty',
   in_progress: 'cleaning in progress',
-  clean: 'clean',
-  inspected: 'inspected',
+  clean: 'awaiting inspection',
+  inspected: 'ready',
   out_of_order: 'out of order',
 }
 

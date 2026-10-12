@@ -28,6 +28,7 @@ from app.services.room_changes import (
     publish_room_changes,
     touch,
 )
+from app.services.rooms import HOUSEKEEPING_PHRASES
 
 # How a reservation's status reads in messages shown to staff.
 STATUS_PHRASES: dict[ReservationStatus, str] = {
@@ -154,8 +155,8 @@ async def check_in(
         )
     if room.housekeeping_status not in READY_FOR_GUEST:
         raise DomainError(
-            f"Room {room.number} is {room.housekeeping_status.value}; "
-            "it must be clean or inspected.",
+            f"Room {room.number} is {HOUSEKEEPING_PHRASES[room.housekeeping_status]}; "
+            "it must be cleaned first (awaiting inspection or ready).",
             code="room_not_ready",
         )
     await _ensure_room_free_for(db, room, reservation, today)
