@@ -43,7 +43,7 @@ async def role_keys(db: AsyncSession, role_name: str) -> set[str]:
 
 def test_catalog_keys_are_unique_and_grouped() -> None:
     keys = [p.key for p in PERMISSIONS]
-    assert len(keys) == len(set(keys)) == 20
+    assert len(keys) == len(set(keys)) == 21
     assert all(p.group and p.description for p in PERMISSIONS)
 
 
@@ -54,7 +54,14 @@ def test_default_roles_only_use_catalog_keys() -> None:
 
 def test_default_role_definitions() -> None:
     assert ROLE_PERMISSIONS[Roles.ADMIN] == ALL_PERMISSION_KEYS
-    assert ROLE_PERMISSIONS[Roles.GENERAL_MANAGER] == ALL_PERMISSION_KEYS - {P.SETTINGS_MANAGE}
+    assert ROLE_PERMISSIONS[Roles.GENERAL_MANAGER] == ALL_PERMISSION_KEYS - {
+        P.SETTINGS_MANAGE,
+        P.ROOM_MANAGE,
+    }
+    # Room setup is Admin-only.
+    assert [name for name, keys in ROLE_PERMISSIONS.items() if P.ROOM_MANAGE in keys] == [
+        Roles.ADMIN
+    ]
     assert ROLE_PERMISSIONS[Roles.ROOM_ATTENDANT] == {P.ROOM_UPDATE_HOUSEKEEPING_STATUS}
     assert ROLE_PERMISSIONS[Roles.HOUSEKEEPING_SUPERVISOR] == {
         P.DASHBOARD_VIEW,

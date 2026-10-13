@@ -116,7 +116,7 @@ export const ADMIN_USER: User = {
   full_name: 'Ada Admin',
   property: PROPERTY,
   role: { id: 1, name: 'Admin' },
-  permissions: [...ALL_PERMISSIONS, 'settings.manage'].sort(),
+  permissions: [...ALL_PERMISSIONS, 'room.manage', 'settings.manage'].sort(),
 }
 
 export const FRONT_OFFICE_MANAGER_USER: User = {

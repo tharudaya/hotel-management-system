@@ -64,12 +64,21 @@ async def seeded(live_db: async_sessionmaker[AsyncSession]) -> dict[str, int]:
             db.add(user)
             await db.flush()
             await assign_role(db, user, role_name)
-        std = RoomType(code="STD", name="Standard", max_occupancy=2)
+        pid = await get_default_property_id(db)
+        std = RoomType(property_id=pid, code="STD", name="Standard", max_occupancy=2)
         room_101 = Room(
-            number="101", floor=1, room_type=std, housekeeping_status=HousekeepingStatus.CLEAN
+            property_id=pid,
+            number="101",
+            floor=1,
+            room_type=std,
+            housekeeping_status=HousekeepingStatus.CLEAN,
         )
         room_102 = Room(
-            number="102", floor=1, room_type=std, housekeeping_status=HousekeepingStatus.DIRTY
+            property_id=pid,
+            number="102",
+            floor=1,
+            room_type=std,
+            housekeeping_status=HousekeepingStatus.DIRTY,
         )
         guest = Reservation(
             confirmation_code="INHOUSE",

@@ -30,6 +30,7 @@ class P:
     DASHBOARD_VIEW: Final = "dashboard.view"
     ROOM_UPDATE_HOUSEKEEPING_STATUS: Final = "room.update_housekeeping_status"
     ROOM_SET_OUT_OF_ORDER: Final = "room.set_out_of_order"
+    ROOM_MANAGE: Final = "room.manage"
     RESERVATION_VIEW: Final = "reservation.view"
     RESERVATION_CREATE: Final = "reservation.create"
     RESERVATION_MODIFY: Final = "reservation.modify"
@@ -53,6 +54,7 @@ PERMISSIONS: Final[tuple[Permission, ...]] = (
     Permission(P.DASHBOARD_VIEW, "View the front desk dashboard", "dashboard"),
     Permission(P.ROOM_UPDATE_HOUSEKEEPING_STATUS, "Change a room's housekeeping status", "rooms"),
     Permission(P.ROOM_SET_OUT_OF_ORDER, "Take rooms out of order or back into service", "rooms"),
+    Permission(P.ROOM_MANAGE, "Add, edit and retire rooms and room types", "rooms"),
     Permission(P.RESERVATION_VIEW, "View reservations", "reservations"),
     Permission(P.RESERVATION_CREATE, "Create reservations", "reservations"),
     Permission(P.RESERVATION_MODIFY, "Change reservations", "reservations"),
@@ -87,18 +89,23 @@ def _in_groups(*groups: str) -> frozenset[str]:
 
 # System roles created for every property (is_system = true; cannot be deleted).
 # Admin always has every permission, including keys added later, and cannot be edited.
+# Room setup (room.manage) is Admin-only: roles defined by formula exclude it explicitly.
+ADMIN_ONLY: Final[frozenset[str]] = frozenset({P.SETTINGS_MANAGE, P.ROOM_MANAGE})
 DEFAULT_ROLES: Final[tuple[DefaultRole, ...]] = (
     DefaultRole(ADMIN_ROLE_NAME, "Full access, including settings", ALL_PERMISSION_KEYS),
     DefaultRole(
         "General manager",
-        "Everything except property settings",
-        ALL_PERMISSION_KEYS - {P.SETTINGS_MANAGE},
+        "Everything except property settings and room setup",
+        ALL_PERMISSION_KEYS - ADMIN_ONLY,
     ),
     DefaultRole(
         "Front office manager",
         "Runs the front desk: rooms, reservations, guests, payments and reports",
-        _in_groups("dashboard", "rooms", "reservations", "guests", "payments")
-        | {P.REPORT_VIEW, P.USER_VIEW},
+        (
+            _in_groups("dashboard", "rooms", "reservations", "guests", "payments")
+            | {P.REPORT_VIEW, P.USER_VIEW}
+        )
+        - ADMIN_ONLY,
     ),
     DefaultRole(
         "Receptionist",

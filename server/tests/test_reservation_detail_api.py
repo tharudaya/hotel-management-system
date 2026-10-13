@@ -24,14 +24,15 @@ from tests.conftest import USERNAME_FOR_ROLE, LoginAs, MakeUser, Roles
 
 @pytest.fixture
 async def reservation(db_session: AsyncSession) -> Reservation:
-    std = RoomType(code="STD", name="Standard", max_occupancy=3)
+    pid = await get_default_property_id(db_session)
+    std = RoomType(property_id=pid, code="STD", name="Standard", max_occupancy=3)
     reservation = Reservation(
         confirmation_code="ABC123",
         guest=Guest(
             first_name="Ada", last_name="Lovelace", email="ada@example.com", phone="+1-555-0100"
         ),
         room_type=std,
-        room=Room(number="304", floor=3, room_type=std),
+        room=Room(property_id=pid, number="304", floor=3, room_type=std),
         check_in_date=date(2026, 3, 8),
         check_out_date=date(2026, 3, 11),
         adults=2,

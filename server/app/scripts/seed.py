@@ -59,6 +59,11 @@ ROOM_TYPES: list[tuple[str, str, int]] = [
     ("DLX", "Deluxe King", 3),
     ("STE", "Junior Suite", 4),
 ]
+BED_SETUPS: dict[str, str] = {
+    "STD": "1 queen or 2 singles",
+    "DLX": "1 king",
+    "STE": "1 king and a sofa bed",
+}
 
 FLOORS: range = range(1, 5)
 ROOMS_PER_FLOOR: int = 10
@@ -191,7 +196,13 @@ async def seed_dev_data(session: AsyncSession, today: date) -> SeedSummary:
     summary.users = len(DEV_USERS)
 
     types = {
-        code: RoomType(code=code, name=name, max_occupancy=occupancy)
+        code: RoomType(
+            property_id=property_id,
+            code=code,
+            name=name,
+            max_occupancy=occupancy,
+            bed_setup=BED_SETUPS[code],
+        )
         for code, name, occupancy in ROOM_TYPES
     }
     session.add_all(types.values())
@@ -201,7 +212,14 @@ async def seed_dev_data(session: AsyncSession, today: date) -> SeedSummary:
     for floor in FLOORS:
         for n in range(1, ROOMS_PER_FLOOR + 1):
             code = "STD" if n <= 6 else "DLX" if n <= 9 else "STE"
-            rooms.append(Room(number=f"{floor}{n:02d}", floor=floor, room_type=types[code]))
+            rooms.append(
+                Room(
+                    property_id=property_id,
+                    number=f"{floor}{n:02d}",
+                    floor=floor,
+                    room_type=types[code],
+                )
+            )
     session.add_all(rooms)
     summary.rooms = len(rooms)
 

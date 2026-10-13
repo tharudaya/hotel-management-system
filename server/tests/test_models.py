@@ -1,6 +1,6 @@
 """Database-level rules on the core tables (constraints, optimistic locking)."""
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from sqlalchemy import text
@@ -11,19 +11,27 @@ from sqlalchemy.orm.exc import StaleDataError
 from app.models import (
     Guest,
     HousekeepingStatus,
+    Property,
     Reservation,
     ReservationStatus,
     Room,
     RoomType,
     User,
 )
+from app.services.permissions import get_default_property_id
 
 TODAY: date = date(2026, 1, 15)
 
 
 @pytest.fixture
 async def room(db_session: AsyncSession) -> Room:
-    room = Room(number="101", floor=1, room_type=RoomType(code="STD", name="Std", max_occupancy=2))
+    pid = await get_default_property_id(db_session)
+    room = Room(
+        property_id=pid,
+        number="101",
+        floor=1,
+        room_type=RoomType(property_id=pid, code="STD", name="Std", max_occupancy=2),
+    )
     db_session.add(room)
     await db_session.flush()
     return room
@@ -147,10 +155,83 @@ async def test_confirmation_code_unique(db_session: AsyncSession, room: Room) ->
     )
 
 
-async def test_room_number_unique(db_session: AsyncSession, room: Room) -> None:
+async def test_room_number_unique_per_property(db_session: AsyncSession, room: Room) -> None:
     await assert_rejected(
-        db_session, Room(number="101", floor=1, room_type=room.room_type), "uq_rooms_number"
+        db_session,
+        Room(property_id=room.property_id, number="101", floor=1, room_type=room.room_type),
+        "uq_rooms_property_id_number",
     )
+
+
+async def test_same_room_number_at_another_property(db_session: AsyncSession, room: Room) -> None:
+    other = Property(name="Other Hotel", time_zone="UTC")
+    db_session.add(other)
+    await db_session.flush()
+    std = RoomType(property_id=other.id, code="STD", name="Std", max_occupancy=2)
+    db_session.add(Room(property_id=other.id, number="101", floor=1, room_type=std))
+
+    await db_session.flush()  # no conflict with room 101 of the first property
+
+
+@pytest.mark.parametrize(
+    ("code", "name", "constraint"),
+    [
+        ("STD", "Another", "uq_room_types_property_id_code"),
+        ("OTH", "Std", "uq_room_types_property_id_name"),
+    ],
+)
+async def test_room_type_code_and_name_unique_per_property(
+    db_session: AsyncSession, room: Room, code: str, name: str, constraint: str
+) -> None:
+    await assert_rejected(
+        db_session,
+        RoomType(property_id=room.property_id, code=code, name=name, max_occupancy=2),
+        constraint,
+    )
+
+
+async def test_room_cannot_use_another_propertys_room_type(
+    db_session: AsyncSession, room: Room
+) -> None:
+    other = Property(name="Other Hotel", time_zone="UTC")
+    db_session.add(other)
+    await db_session.flush()
+    theirs = RoomType(property_id=other.id, code="XXX", name="Theirs", max_occupancy=2)
+    db_session.add(theirs)
+    await db_session.flush()
+
+    await assert_rejected(
+        db_session,
+        Room(property_id=room.property_id, number="999", floor=9, room_type_id=theirs.id),
+        "fk_rooms_room_type_id_property_id_room_types",
+    )
+
+
+@pytest.mark.parametrize(("is_active", "retired"), [(False, False), (True, True)])
+async def test_retired_flag_and_date_must_agree(
+    db_session: AsyncSession, room: Room, is_active: bool, retired: bool
+) -> None:
+    await assert_rejected(
+        db_session,
+        Room(
+            property_id=room.property_id,
+            number="998",
+            floor=9,
+            room_type=room.room_type,
+            is_active=is_active,
+            retired_at=datetime(2026, 1, 1, tzinfo=UTC) if retired else None,
+        ),
+        "ck_rooms_retired_consistent",
+    )
+
+
+async def test_new_rooms_and_types_are_active(db_session: AsyncSession, room: Room) -> None:
+    room_type = await db_session.get(RoomType, room.room_type_id)
+    assert room_type is not None
+    await db_session.refresh(room)
+    await db_session.refresh(room_type)
+    assert room.is_active and room.retired_at is None and room.created_at is not None
+    assert room_type.is_active and room_type.created_at is not None
 
 
 async def test_username_must_be_lowercase(db_session: AsyncSession) -> None:

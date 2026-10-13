@@ -13,6 +13,7 @@ export const P = {
   DASHBOARD_VIEW: 'dashboard.view',
   ROOM_UPDATE_HOUSEKEEPING_STATUS: 'room.update_housekeeping_status',
   ROOM_SET_OUT_OF_ORDER: 'room.set_out_of_order',
+  ROOM_MANAGE: 'room.manage',
   RESERVATION_VIEW: 'reservation.view',
   RESERVATION_CREATE: 'reservation.create',
   RESERVATION_MODIFY: 'reservation.modify',

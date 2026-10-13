@@ -19,6 +19,7 @@ from app.models import (
     RoomType,
 )
 from app.services.dashboard import get_dashboard_rooms, get_dashboard_summary
+from app.services.permissions import get_default_property_id
 from tests.conftest import LoginAs, Roles
 
 ROOMS: str = "/api/dashboard/rooms"
@@ -37,7 +38,8 @@ def fixed_today(app: FastAPI) -> date:
 @pytest.fixture
 async def hotel(db_session: AsyncSession) -> dict[str, Room]:
     """A small hotel covering every dashboard case. Returns rooms by number."""
-    std = RoomType(code="STD", name="Standard", max_occupancy=3)
+    pid = await get_default_property_id(db_session)
+    std = RoomType(property_id=pid, code="STD", name="Standard", max_occupancy=3)
     housekeeping = {
         "101": HK.INSPECTED,  # vacant
         "102": HK.CLEAN,  # occupied (VIP, notes)
@@ -52,7 +54,13 @@ async def hotel(db_session: AsyncSession) -> dict[str, Room]:
         "203": HK.OUT_OF_ORDER,  # out of order but has an arrival assigned
     }
     rooms = {
-        number: Room(number=number, floor=int(number[0]), room_type=std, housekeeping_status=hk)
+        number: Room(
+            property_id=pid,
+            number=number,
+            floor=int(number[0]),
+            room_type=std,
+            housekeeping_status=hk,
+        )
         for number, hk in housekeeping.items()
     }
     db_session.add_all(rooms.values())

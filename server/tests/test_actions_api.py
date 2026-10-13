@@ -23,6 +23,7 @@ from app.models import (
     RoomType,
 )
 from app.realtime.events import DomainEvent, RoomStatusChanged, SummaryChanged
+from app.services.permissions import get_default_property_id
 from tests.conftest import LoginAs, Roles
 
 TODAY: date = date(2026, 3, 10)
@@ -65,15 +66,32 @@ def summary_events(published: list[DomainEvent]) -> list[SummaryChanged]:
 
 @pytest.fixture
 async def hotel(db_session: AsyncSession, fixed_today: None) -> Hotel:
-    std = RoomType(code="STD", name="Standard", max_occupancy=2)
-    dlx = RoomType(code="DLX", name="Deluxe", max_occupancy=3)
+    pid = await get_default_property_id(db_session)
+    std = RoomType(property_id=pid, code="STD", name="Standard", max_occupancy=2)
+    dlx = RoomType(property_id=pid, code="DLX", name="Deluxe", max_occupancy=3)
     rooms = {
-        "101": Room(number="101", floor=1, room_type=std, housekeeping_status=HK.CLEAN),
-        "102": Room(number="102", floor=1, room_type=std, housekeeping_status=HK.INSPECTED),
-        "103": Room(number="103", floor=1, room_type=std, housekeeping_status=HK.DIRTY),
-        "104": Room(number="104", floor=1, room_type=std, housekeeping_status=HK.CLEAN),
-        "105": Room(number="105", floor=1, room_type=dlx, housekeeping_status=HK.CLEAN),
-        "106": Room(number="106", floor=1, room_type=std, housekeeping_status=HK.OUT_OF_ORDER),
+        "101": Room(
+            property_id=pid, number="101", floor=1, room_type=std, housekeeping_status=HK.CLEAN
+        ),
+        "102": Room(
+            property_id=pid, number="102", floor=1, room_type=std, housekeeping_status=HK.INSPECTED
+        ),
+        "103": Room(
+            property_id=pid, number="103", floor=1, room_type=std, housekeeping_status=HK.DIRTY
+        ),
+        "104": Room(
+            property_id=pid, number="104", floor=1, room_type=std, housekeeping_status=HK.CLEAN
+        ),
+        "105": Room(
+            property_id=pid, number="105", floor=1, room_type=dlx, housekeeping_status=HK.CLEAN
+        ),
+        "106": Room(
+            property_id=pid,
+            number="106",
+            floor=1,
+            room_type=std,
+            housekeeping_status=HK.OUT_OF_ORDER,
+        ),
     }
 
     def reservation(

@@ -124,6 +124,17 @@ Implementation notes:
 - **All mutations go through REST.** The WebSocket only sends from server to client; it never accepts writes.
 - After a REST mutation succeeds, the service layer publishes the change so it is broadcast over the WebSocket.
 
+### Room setup
+- Rooms and room types belong to a property (`property_id`, required). Room numbers are unique per property (`uq_rooms_property_id_number`); room type codes and names are unique per property. A room references its type through the composite foreign key `(room_type_id, property_id)` -> `room_types(id, property_id)`, so a room can only use a room type of its own property. Tests and the seed must pass `property_id` when creating either (`get_default_property_id`).
+- Managing rooms and room types needs `room.manage` ("Add, edit and retire rooms and room types"). Only the Admin system role has it: `ADMIN_ONLY` in `core/permissions.py` keeps it out of default roles that are defined by formula (General manager, Front office manager).
+- Rules (enforced in the room setup services, next step):
+  - Rooms and room types are never deleted, only retired. A room is retired when `is_active` is false; `retired_at`/`retired_by` record when and by whom, and a check constraint (`ck_rooms_retired_consistent`) keeps `is_active` and `retired_at` in agreement. Room types have `is_active` only (who and when is in the audit log).
+  - A room cannot be retired while a guest is checked in to it or a future reservation is assigned to it.
+  - A room type cannot be retired while it has active rooms or future reservations.
+  - A room's type cannot be changed while a guest is checked in to that room.
+  - Every change (create, edit, retire, reactivate) is written to the audit log with `before`/`after`, like other data changes.
+- Not yet done: dashboard reads still include every room (no retired rooms exist yet); filtering retired rooms out of the dashboard belongs with the retire action.
+
 ## Conventions
 
 - **Library versions:** use the current stable version of every library. Check the official docs for the installed version rather than assuming APIs from memory, especially for SQLAlchemy 2.x, Pydantic v2, TanStack Query, React Router and Tailwind, whose APIs have changed across major versions.
