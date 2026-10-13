@@ -37,7 +37,7 @@ export function LoginPage() {
 
   return (
     <AuthShell
-      title="Sign in to Front Desk"
+      title="Sign in"
       footer={
         <Link to="/forgot-password" className={authLinkClass}>
           Forgot your password?

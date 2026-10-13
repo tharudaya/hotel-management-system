@@ -179,7 +179,7 @@ describe('live dashboard', () => {
 
     screen.getByRole('button', { name: 'Sign out' }).click()
 
-    await screen.findByRole('heading', { name: 'Sign in to Front Desk' })
+    await screen.findByRole('heading', { name: 'Sign in' })
     expect(socket.closed?.code).toBe(1000)
   })
 })

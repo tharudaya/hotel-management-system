@@ -111,9 +111,7 @@ describe('protected routes', () => {
     })
     const router = renderApp('/?floor=2')
 
-    expect(
-      await screen.findByRole('heading', { name: 'Sign in to Front Desk' }),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/login')
     expect(screen.queryByRole('banner')).not.toBeInTheDocument()
 
@@ -157,9 +155,7 @@ describe('logout', () => {
 
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Sign out' }))
 
-    expect(
-      await screen.findByRole('heading', { name: 'Sign in to Front Desk' }),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/login')
     expect(
       fetchMock.mock.calls.some(([p, init]) => p === '/api/auth/logout' && init?.method === 'POST'),
