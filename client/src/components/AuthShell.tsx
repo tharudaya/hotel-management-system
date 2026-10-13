@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import { focusRing } from './styles'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 
 /** Inputs on the signed-out pages (login, activation, password reset). */
 export const authInputClass =
@@ -46,6 +47,7 @@ export function AuthShell({
   children: ReactNode
   footer?: ReactNode
 }) {
+  useDocumentTitle(title)
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-12 sm:px-6">
       <div className="w-full max-w-md">

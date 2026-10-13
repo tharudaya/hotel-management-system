@@ -9,6 +9,7 @@ import { ConnectionIndicator } from '../realtime/ConnectionIndicator'
 import { useRealtime } from '../realtime/useRealtime'
 import { buttonSecondary, focusRing } from './styles'
 import { clearToasts } from './toast'
+import { RouteAnnouncer } from './RouteAnnouncer'
 import { Toaster } from './Toaster'
 
 /** Shell for signed-in pages: header with the user and a sign-out button. */
@@ -86,6 +87,7 @@ export function AppLayout() {
         <Outlet />
       </main>
       <Toaster />
+      <RouteAnnouncer />
     </div>
   )
 }

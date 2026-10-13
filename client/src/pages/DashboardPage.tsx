@@ -17,6 +17,7 @@ import { useRooms, useSummary } from '../dashboard/queries'
 import { RoomDetailPanel } from '../dashboard/RoomDetailPanel'
 import { RoomGrid } from '../dashboard/RoomGrid'
 import { SummaryBar } from '../dashboard/SummaryBar'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 
 const ROOM_PARAM = 'room'
 
@@ -29,6 +30,7 @@ function focusTile(roomId: number) {
 
 export function DashboardPage() {
   const user = useAuthenticatedUser()
+  useDocumentTitle(can(user, P.DASHBOARD_VIEW) ? 'Rooms' : 'No dashboard access')
   if (!can(user, P.DASHBOARD_VIEW)) {
     return (
       <section aria-labelledby="no-dashboard" className="rounded-lg bg-white p-8 shadow-sm">

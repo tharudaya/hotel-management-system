@@ -21,12 +21,14 @@ import {
   toSearch,
 } from './params'
 import { useAuditLog } from './queries'
+import { useDocumentTitle } from '../../lib/useDocumentTitle'
 
 const DEBOUNCE_MS = 300
 const GROUPS: ActionGroup[] = ['Sign-in', 'Users', 'Roles', 'Front desk']
 
 /** /admin/audit: every data change and sign-in event, newest first. */
 export function AuditLogPage() {
+  useDocumentTitle('Audit log')
   const [search, setSearch] = useSearchParams()
   const filters = parseFilters(search)
   const problem = filterProblem(filters)

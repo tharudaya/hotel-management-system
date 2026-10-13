@@ -53,6 +53,8 @@ def test_settings() -> Settings:
             "login_failure_window_seconds": 15 * 60,
             "login_max_failures_per_username": 5,
             "login_max_failures_per_ip": 20,
+            # Tests run the sweep explicitly.
+            "expiry_sweep_interval_seconds": 0,
         }
     )
 

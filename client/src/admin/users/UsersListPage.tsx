@@ -21,11 +21,13 @@ import {
 import { useAssignableRoles, useUserList } from './queries'
 import { StatusBadge } from './StatusBadge'
 import { USER_STATUS } from './status'
+import { useDocumentTitle } from '../../lib/useDocumentTitle'
 
 const SEARCH_DEBOUNCE_MS = 300
 
 /** /admin/users: searchable, filterable, sortable, paginated; all state in the URL. */
 export function UsersListPage() {
+  useDocumentTitle('Users')
   const [search, setSearch] = useSearchParams()
   const params = parseParams(search)
   const list = useUserList(params)

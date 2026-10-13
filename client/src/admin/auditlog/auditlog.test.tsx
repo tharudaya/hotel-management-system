@@ -224,8 +224,10 @@ describe('audit log filters', () => {
     await waitFor(() => {
       expect(router.state.location.search).toBe('?actor=mallory&action=auth.login_failed')
     })
-    // Debounced: one request once typing pauses.
-    expect(auditRequests(fetchMock).filter((p) => p.includes('actor='))).toHaveLength(1)
+    // Debounced: one request once typing pauses (the URL updates a render before it).
+    await waitFor(() => {
+      expect(auditRequests(fetchMock).filter((p) => p.includes('actor='))).toHaveLength(1)
+    })
   })
 
   it('refuses a date range that ends before it starts, without asking the server', async () => {

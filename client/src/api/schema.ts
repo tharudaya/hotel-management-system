@@ -75,45 +75,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/auth/activate/{token}": {
+    "/api/auth/activate/check": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
+        get?: never;
+        put?: never;
         /**
          * Check Invite
          * @description Who the invite is for (username and name only).
          */
-        get: operations["check_invite_api_auth_activate__token__get"];
-        put?: never;
-        /**
-         * Activate
-         * @description Set the first password and activate the account. Does not log in.
-         */
-        post: operations["activate_api_auth_activate__token__post"];
+        post: operations["check_invite_api_auth_activate_check_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/auth/reset-password/{token}": {
+    "/api/auth/activate": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
+        get?: never;
+        put?: never;
+        /**
+         * Activate
+         * @description Set the first password and activate the account. Does not log in.
+         */
+        post: operations["activate_api_auth_activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/reset-password/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
         /** Check Reset */
-        get: operations["check_reset_api_auth_reset_password__token__get"];
+        post: operations["check_reset_api_auth_reset_password_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
         put?: never;
         /**
          * Reset Password
          * @description Set a new password; every existing session of the user ends. Does not log in.
          */
-        post: operations["reset_password_api_auth_reset_password__token__post"];
+        post: operations["reset_password_api_auth_reset_password_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -571,7 +603,7 @@ export interface components {
          * @description What changed. Stored as plain strings, so new actions need no migration.
          * @enum {string}
          */
-        AuditAction: "reservation.checked_in" | "reservation.checked_out" | "room.housekeeping_status_changed" | "user.created" | "user.updated" | "user.role_changed" | "user.deactivated" | "user.reactivated" | "user.sessions_revoked" | "user.invite_sent" | "user.password_reset_sent" | "user.activated" | "user.password_reset" | "role.created" | "role.updated" | "role.deleted";
+        AuditAction: "reservation.checked_in" | "reservation.checked_out" | "room.housekeeping_status_changed" | "user.created" | "user.updated" | "user.role_changed" | "user.deactivated" | "user.reactivated" | "user.sessions_revoked" | "user.invite_sent" | "user.password_reset_sent" | "user.activated" | "user.password_reset" | "user.expired" | "role.created" | "role.updated" | "role.deleted";
         /** AuditActor */
         AuditActor: {
             /** Id */
@@ -623,7 +655,7 @@ export interface components {
          * AuditEventType
          * @enum {string}
          */
-        AuditEventType: "auth.login_succeeded" | "auth.login_failed" | "auth.login_blocked" | "auth.logout" | "auth.password_reset_requested";
+        AuditEventType: "auth.login_succeeded" | "auth.login_failed" | "auth.login_blocked" | "auth.logout" | "auth.password_reset_requested" | "auth.link_rejected";
         /**
          * AuditPage
          * @description Newest first. Pass next_cursor back as `cursor` for older entries; None = end.
@@ -989,6 +1021,8 @@ export interface components {
         };
         /** SetPasswordRequest */
         SetPasswordRequest: {
+            /** Token */
+            token: string;
             /** Password */
             password: string;
         };
@@ -1001,6 +1035,14 @@ export interface components {
             username: string;
             /** Full Name */
             full_name: string;
+        };
+        /**
+         * TokenRequest
+         * @description Tokens travel in request bodies, never in URLs (which end up in access logs).
+         */
+        TokenRequest: {
+            /** Token */
+            token: string;
         };
         /**
          * UserCreate
@@ -1296,16 +1338,18 @@ export interface operations {
             };
         };
     };
-    check_invite_api_auth_activate__token__get: {
+    check_invite_api_auth_activate_check_post: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                token: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -1343,15 +1387,22 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Too many rejected links from this address */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
-    activate_api_auth_activate__token__post: {
+    activate_api_auth_activate_post: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                token: string;
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody: {
@@ -1396,18 +1447,29 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Too many rejected links from this address */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
-    check_reset_api_auth_reset_password__token__get: {
+    check_reset_api_auth_reset_password_check_post: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                token: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -1445,15 +1507,22 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Too many rejected links from this address */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
-    reset_password_api_auth_reset_password__token__post: {
+    reset_password_api_auth_reset_password_post: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                token: string;
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody: {
@@ -1491,6 +1560,15 @@ export interface operations {
             };
             /** @description Password breaks a rule */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many rejected links from this address */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

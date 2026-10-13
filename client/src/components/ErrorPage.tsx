@@ -1,6 +1,7 @@
 import { isRouteErrorResponse, Link, useRouteError } from 'react-router'
 
 import { buttonPrimary } from './styles'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 
 interface ErrorPageProps {
   /** Render as "page not found" without a thrown error (catch-all route). */
@@ -23,6 +24,7 @@ function RouteError() {
 }
 
 function ErrorLayout({ missing }: { missing: boolean }) {
+  useDocumentTitle(missing ? 'Page not found' : 'Something went wrong')
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
       <div className="max-w-md rounded-xl bg-white p-8 text-center shadow-md ring-1 ring-slate-200">

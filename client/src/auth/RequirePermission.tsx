@@ -4,6 +4,7 @@ import { Link, Outlet } from 'react-router'
 import { focusRing } from '../components/styles'
 import { P, type PermissionKey } from './permissions'
 import { usePermissions } from './usePermissions'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 
 type RequirePermissionProps = {
   /** Rendered when allowed; defaults to the child routes. */
@@ -26,6 +27,7 @@ export function RequirePermission({ children, ...rule }: RequirePermissionProps)
 }
 
 export function NoAccess() {
+  useDocumentTitle('No access')
   const { can } = usePermissions()
   return (
     <section

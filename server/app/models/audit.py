@@ -27,6 +27,7 @@ class AuditAction(StrEnum):
     USER_PASSWORD_RESET_SENT = "user.password_reset_sent"
     USER_ACTIVATED = "user.activated"
     USER_PASSWORD_RESET = "user.password_reset"
+    USER_EXPIRED = "user.expired"  # recorded by the expiry sweep (actor: the system)
     ROLE_CREATED = "role.created"
     ROLE_UPDATED = "role.updated"
     ROLE_DELETED = "role.deleted"

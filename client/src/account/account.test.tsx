@@ -5,8 +5,10 @@ import { describe, expect, it } from 'vitest'
 import { mockApi, renderApp } from '../test/renderApp'
 
 const TOKEN = 'Abc123_-Abc123_-Abc123_-Abc123_-Abc123_-xyz'
-const ACTIVATE = `/api/auth/activate/${TOKEN}`
-const RESET = `/api/auth/reset-password/${TOKEN}`
+const ACTIVATE_CHECK = 'POST /api/auth/activate/check'
+const ACTIVATE = 'POST /api/auth/activate'
+const RESET_CHECK = 'POST /api/auth/reset-password/check'
+const RESET = 'POST /api/auth/reset-password'
 const NEWBIE = { username: 'newbie', full_name: 'New Bie' }
 const GOOD = 'Tricky-Ferret-Lamp'
 
@@ -20,10 +22,10 @@ async function choosePassword(password: string, confirm = password, button = 'Ac
 describe('activate account', () => {
   it('shows who the invite is for, sets the password and links to sign in', async () => {
     const fetchMock = mockApi({
-      [`GET ${ACTIVATE}`]: () => [200, NEWBIE],
-      [`POST ${ACTIVATE}`]: () => [200, { detail: 'Your account is ready. You can now sign in.' }],
+      [ACTIVATE_CHECK]: () => [200, NEWBIE],
+      [ACTIVATE]: () => [200, { detail: 'Your account is ready. You can now sign in.' }],
     })
-    const router = renderApp(`/activate/${TOKEN}`)
+    const router = renderApp(`/activate#${TOKEN}`)
 
     expect(screen.getByRole('status')).toHaveTextContent('Checking your link…')
     expect(await screen.findByRole('heading', { name: 'Welcome, New Bie' })).toBeInTheDocument()
@@ -38,16 +40,50 @@ describe('activate account', () => {
       await screen.findByRole('heading', { name: 'Your account is ready' }),
     ).toBeInTheDocument()
     expect(screen.getByText(/You can now sign in/)).toHaveFocus()
+    // The token travels in request bodies, never in a URL.
+    const [checkPath, checkInit] = fetchMock.mock.calls[0] ?? []
+    expect(checkPath).toBe('/api/auth/activate/check')
+    expect(checkInit?.body).toBe(JSON.stringify({ token: TOKEN }))
     const [, init] = fetchMock.mock.calls[1] ?? []
-    expect(init?.body).toBe(JSON.stringify({ password: GOOD }))
+    expect(init?.body).toBe(JSON.stringify({ token: TOKEN, password: GOOD }))
     // Not signed in automatically: the way on is the sign-in page.
     await userEvent.setup().click(screen.getByRole('link', { name: 'Go to sign in' }))
     expect(router.state.location.pathname).toBe('/login')
   })
 
+  it('takes the token from the fragment and removes it from the address bar', async () => {
+    mockApi({ [ACTIVATE_CHECK]: () => [200, NEWBIE] })
+    const router = renderApp(`/activate#${TOKEN}`)
+
+    await screen.findByRole('heading', { name: 'Welcome, New Bie' })
+    await waitFor(() => {
+      expect(router.state.location.hash).toBe('')
+    })
+    expect(router.state.location.pathname).toBe('/activate')
+  })
+
+  it('treats a link without a token as invalid, without asking the server', async () => {
+    const fetchMock = mockApi({})
+    renderApp('/activate')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('This link is not valid.')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('explains throttling', async () => {
+    mockApi({
+      [ACTIVATE_CHECK]: () => [429, { detail: 'Too many attempts', code: 'too_many_attempts' }],
+    })
+    renderApp(`/activate#${TOKEN}`)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Too many attempts with invalid links. Please wait a while and try again.',
+    )
+  })
+
   it('checks length and confirmation before sending anything', async () => {
-    const fetchMock = mockApi({ [`GET ${ACTIVATE}`]: () => [200, NEWBIE] })
-    renderApp(`/activate/${TOKEN}`)
+    const fetchMock = mockApi({ [ACTIVATE_CHECK]: () => [200, NEWBIE] })
+    renderApp(`/activate#${TOKEN}`)
 
     await choosePassword('short', 'short')
 
@@ -70,13 +106,13 @@ describe('activate account', () => {
 
   it('shows the server password rule on the field and keeps the form', async () => {
     mockApi({
-      [`GET ${ACTIVATE}`]: () => [200, NEWBIE],
-      [`POST ${ACTIVATE}`]: () => [
+      [ACTIVATE_CHECK]: () => [200, NEWBIE],
+      [ACTIVATE]: () => [
         422,
         { detail: 'This password is too common. Choose another.', code: 'password_too_common' },
       ],
     })
-    renderApp(`/activate/${TOKEN}`)
+    renderApp(`/activate#${TOKEN}`)
 
     await choosePassword('password2024!')
 
@@ -93,8 +129,8 @@ describe('activate account', () => {
     [410, 'token_expired', 'This link has expired.'],
     [410, 'token_used', 'This link has already been used.'],
   ])('explains a bad link (%i %s)', async (status, code, message) => {
-    mockApi({ [`GET ${ACTIVATE}`]: () => [status, { detail: 'x', code }] })
-    renderApp(`/activate/${TOKEN}`)
+    mockApi({ [ACTIVATE_CHECK]: () => [status, { detail: 'x', code }] })
+    renderApp(`/activate#${TOKEN}`)
 
     expect(await screen.findByRole('alert')).toHaveTextContent(message)
     expect(screen.getByText('Ask your manager to send you a new invite.')).toBeInTheDocument()
@@ -103,10 +139,10 @@ describe('activate account', () => {
 
   it('switches to the bad-link message if the link dies before submitting', async () => {
     mockApi({
-      [`GET ${ACTIVATE}`]: () => [200, NEWBIE],
-      [`POST ${ACTIVATE}`]: () => [410, { detail: 'x', code: 'token_used' }],
+      [ACTIVATE_CHECK]: () => [200, NEWBIE],
+      [ACTIVATE]: () => [410, { detail: 'x', code: 'token_used' }],
     })
-    renderApp(`/activate/${TOKEN}`)
+    renderApp(`/activate#${TOKEN}`)
 
     await choosePassword(GOOD)
 
@@ -116,9 +152,9 @@ describe('activate account', () => {
   it('offers a retry when the link cannot be checked', async () => {
     let calls = 0
     mockApi({
-      [`GET ${ACTIVATE}`]: () => (++calls === 1 ? [503, { detail: 'down' }] : [200, NEWBIE]),
+      [ACTIVATE_CHECK]: () => (++calls === 1 ? [503, { detail: 'down' }] : [200, NEWBIE]),
     })
-    renderApp(`/activate/${TOKEN}`)
+    renderApp(`/activate#${TOKEN}`)
 
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Try again' }))
 
@@ -129,10 +165,10 @@ describe('activate account', () => {
 describe('reset password', () => {
   it('sets a new password and says other sessions were signed out', async () => {
     mockApi({
-      [`GET ${RESET}`]: () => [200, NEWBIE],
-      [`POST ${RESET}`]: () => [200, { detail: 'Your password has been changed.' }],
+      [RESET_CHECK]: () => [200, NEWBIE],
+      [RESET]: () => [200, { detail: 'Your password has been changed.' }],
     })
-    renderApp(`/reset-password/${TOKEN}`)
+    renderApp(`/reset-password#${TOKEN}`)
 
     expect(await screen.findByRole('heading', { name: 'Hello, New Bie' })).toBeInTheDocument()
     await choosePassword(GOOD, GOOD, 'Change password')
@@ -142,8 +178,8 @@ describe('reset password', () => {
   })
 
   it('points to a new reset link when the link has expired', async () => {
-    mockApi({ [`GET ${RESET}`]: () => [410, { detail: 'x', code: 'token_expired' }] })
-    const router = renderApp(`/reset-password/${TOKEN}`)
+    mockApi({ [RESET_CHECK]: () => [410, { detail: 'x', code: 'token_expired' }] })
+    const router = renderApp(`/reset-password#${TOKEN}`)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('This link has expired.')
     await userEvent.setup().click(screen.getByRole('link', { name: 'Request a new reset link' }))

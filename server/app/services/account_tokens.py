@@ -1,9 +1,11 @@
 """Invite and password-reset links: issue, check, redeem; forgot-password requests.
 
 Tokens are 256 bits from `secrets`, single use, and only their keyed hash (HMAC with
-SESSION_SECRET, like session tokens) is stored. Invites last 72 hours, resets 1 hour.
-Issuing a token for a user expires their other unused tokens, so only the newest
-link works. Redeeming never logs the user in.
+SESSION_SECRET, like session tokens) is stored. They never appear in URLs the server
+sees: emailed links carry them in the fragment (#), the API takes them in the body.
+Rejected tokens are recorded (auth.link_rejected) and throttled per IP. Invites last
+72 hours, resets 1 hour. Issuing a token for a user expires their other unused tokens,
+so only the newest link works. Redeeming never logs the user in.
 """
 
 import logging
@@ -22,7 +24,13 @@ from app.realtime.bus import EventBus
 from app.schemas.account import TokenInfo
 from app.services.audit import ClientInfo, record_change, record_event
 from app.services.auth import publish_sessions_ended, revoke_user_sessions
-from app.services.errors import GoneError, InvalidInputError, NotFoundError
+from app.services.errors import (
+    DomainError,
+    GoneError,
+    InvalidInputError,
+    NotFoundError,
+    TooManyRequestsError,
+)
 from app.services.permissions import get_default_property_id
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -51,7 +59,9 @@ def _token_hash(settings: Settings, token: str) -> str:
 
 
 def link_for(settings: Settings, purpose: TokenPurpose, token: str) -> str:
-    return f"{settings.app_base_url.rstrip('/')}/{LINK_PATH[purpose]}/{token}"
+    # The token goes in the fragment: browsers never send what follows "#" to any
+    # server, so it stays out of web server, proxy and CDN logs.
+    return f"{settings.app_base_url.rstrip('/')}/{LINK_PATH[purpose]}#{token}"
 
 
 def mask_email(email: str) -> str:
@@ -164,10 +174,60 @@ async def _load(
     return user_token, user
 
 
+async def _ensure_not_throttled(db: AsyncSession, settings: Settings, client: ClientInfo) -> None:
+    """Too many rejected links from this IP lately: refuse before even looking."""
+    if client.ip_address is None:
+        return
+    since = func.now() - timedelta(seconds=settings.login_failure_window_seconds)
+    rejected = await db.scalar(
+        select(func.count()).where(
+            AuditEvent.event_type == AuditEventType.LINK_REJECTED.value,
+            AuditEvent.ip_address == client.ip_address,
+            AuditEvent.occurred_at > since,
+        )
+    )
+    if (rejected or 0) >= settings.link_max_failures_per_ip:
+        raise TooManyRequestsError(
+            "Too many attempts with invalid links. Try again later.",
+            retry_after_seconds=settings.login_failure_window_seconds,
+            code="too_many_attempts",
+        )
+
+
+async def _load_checked(
+    db: AsyncSession,
+    settings: Settings,
+    token: str,
+    purpose: TokenPurpose,
+    client: ClientInfo,
+    *,
+    lock: bool,
+) -> tuple[UserToken, User]:
+    """_load, throttled per IP; every rejection is recorded (and counts)."""
+    await _ensure_not_throttled(db, settings, client)
+    try:
+        return await _load(db, settings, token, purpose, lock=lock)
+    except DomainError as exc:
+        # Nothing was changed yet; committing the event also releases the row lock.
+        record_event(
+            db,
+            AuditEventType.LINK_REJECTED,
+            client,
+            details={"purpose": purpose.value, "reason": exc.code},
+        )
+        await db.commit()
+        raise
+
+
 async def token_info(
-    db: AsyncSession, settings: Settings, *, token: str, purpose: TokenPurpose
+    db: AsyncSession,
+    settings: Settings,
+    *,
+    token: str,
+    purpose: TokenPurpose,
+    client: ClientInfo,
 ) -> TokenInfo:
-    _, user = await _load(db, settings, token, purpose, lock=False)
+    _, user = await _load_checked(db, settings, token, purpose, client, lock=False)
     return TokenInfo(username=user.username, full_name=user.full_name)
 
 
@@ -182,7 +242,7 @@ async def redeem(
     client: ClientInfo,
 ) -> None:
     """Set the password and use up the token. Does not log the user in."""
-    user_token, user = await _load(db, settings, token, purpose, lock=True)
+    user_token, user = await _load_checked(db, settings, token, purpose, client, lock=True)
     try:
         check_new_password(password, username=user.username)
     except PasswordPolicyError as exc:

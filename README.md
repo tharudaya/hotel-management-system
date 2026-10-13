@@ -72,6 +72,77 @@ turnover room (departure and arrival on the same day), vacant and out-of-order r
 "Today" is the hotel's business date (`HOTEL_TIMEZONE`); reseed with `--reset` on another
 day to get fresh data.
 
+## First admin on a fresh install
+
+The seed script is for development only. On a real install, after the migrations, create
+the first admin from the server directory (the password is asked for twice, never put on
+the command line):
+
+```sh
+uv run python -m app.scripts.create_admin --username admin --full-name "Ada Admin"
+# with Docker: docker compose exec server python -m app.scripts.create_admin ...
+# automation: printf '%s\n' "$PASSWORD" | ... --password-stdin
+```
+
+It refuses while the property has an active admin (create further admins in the app). It
+also works as a recovery path when every admin is deactivated, expired or never activated.
+
+## Users and permissions
+
+**Model.** A *permission* is a key such as `reservation.check_in`, defined in code
+(`server/app/core/permissions.py`, the single catalog). A *role* is a named bundle of
+permissions stored in the database, per property. Each user has at most one role per
+property. Six system roles are created for every property; the **Admin** role always has
+every permission (including ones added later) and cannot be changed at all. Other system
+roles keep their name and description but their permissions can be edited; custom roles
+can be created, copied, edited and deleted (only when nobody has them).
+
+**Enforcement.** The server checks a permission on every request
+(`require_permission(P.X)`), and the rules that depend on data live in the services. The
+client only hides what you cannot use, as a convenience. A user's effective permissions
+are read fresh on every request: changing a role, a role's permissions, deactivating or
+expiring a user takes effect immediately, including on open WebSockets (closed with
+4401/4403, or told `permissions_changed` so the page refetches).
+
+**Guard rules** (all enforced on the server, with tests in
+`server/tests/test_privilege_escalation.py`):
+
+- You cannot grant a permission you do not hold: not by editing a role, creating or
+  copying one, or assigning one to a user.
+- You cannot manage someone more powerful than you: users whose role, at *any* property,
+  grants something you do not hold there; roles that contain such permissions.
+- You cannot act on yourself in ways that lock you out: change your own role, deactivate
+  or expire yourself.
+- A property always keeps at least one active Admin (not deactivated, expired or merely
+  invited); concurrent changes are serialised with a row lock.
+- The Admin role cannot be changed or deleted; system roles cannot be renamed or deleted;
+  a role that someone has cannot be deleted.
+- Users are never deleted, only deactivated. Audit rows can never be changed or deleted
+  (database trigger).
+
+**Adding a permission.**
+
+1. Add a constant to `P` and an entry to `PERMISSIONS` in
+   `server/app/core/permissions.py` (key `area.verb`, description, group). On startup it
+   is synced to the database and granted to every Admin role. Add it to `DEFAULT_ROLES`
+   for roles that should get it on new properties; existing roles get it through the
+   roles screen.
+2. Protect the endpoint with `Depends(require_permission(P.NEW_KEY))`, or check it in the
+   service if it depends on data.
+3. List the endpoint in `ACCESS` in `server/tests/test_security.py`; the automatic tests
+   then check it with and without the permission for every default role.
+4. In the client, add the key to `P` in `client/src/auth/permissions.ts` and use
+   `can(P.NEW_KEY)` / `<Can permission=...>`; regenerate the API types.
+
+**Accounts.** New users are *invited*: they choose their password through a single-use
+link (72 hours; resets 1 hour). Links carry the token after `#`, which browsers never
+send to a server, and the API takes it in the request body, so tokens never land in
+logs. Rejected links, failed logins and forgot-password requests are rate-limited per IP
+(and per username/email). Passwords need 12+ characters and are checked against a list of
+common passwords. Users with an access end date are swept every 5 minutes
+(`EXPIRY_SWEEP_INTERVAL_SECONDS`): sessions revoked, sockets closed, one `user.expired`
+audit entry (`python -m app.scripts.expire_users` does the same from cron).
+
 ## Tests and checks
 
 | What                         | Command                                                                                         |
@@ -166,15 +237,15 @@ development).
    throttling and audit) are correct behind a proxy.
 3. **Unassigned arrivals can't be checked in from the dashboard.** They are counted in the
    summary but have no tile; a "today's arrivals" list with room assignment is needed.
-4. **User management is API-only and incomplete.** `/api/admin/users` creates, edits,
-   (de)activates users, assigns roles, revokes sessions and issues invite/reset links, but
-   the admin UI covers users, roles and the audit log.
-   There is no real email backend yet (only `console` and `disabled`); without one,
-   admins share links in person and forgot-password sends nothing.
+4. **No real email backend yet** (only `console` for development and `disabled`). Until
+   one is added, admins share invite links in person, password resets by email fail with
+   a clear error, and forgot-password sends nothing.
 5. **Room attendants have no UI.** They can use the API but lack `dashboard.view`; a
    housekeeping view is a natural next feature.
-6. **Expired sessions and audit rows are never purged.** Add a periodic cleanup job and a
-   retention policy for `audit_events` (it contains IP addresses).
+6. **Old sessions and audit rows are never purged.** Expired users' sessions are revoked
+   by the sweep, but rows stay. Audit rows are append-only by design; a retention policy
+   (e.g. archiving `audit_events`, which holds IP addresses) needs a deliberate,
+   privileged procedure that drops the trigger.
 7. **Early check-out keeps the booked dates**, so it is not counted in "departures today".
 8. **The client copies the housekeeping transition table** to decide which buttons to show;
    keep it in sync with the server (or serve it from an endpoint).
@@ -189,3 +260,35 @@ development).
     per username _and_ IP pair, CAPTCHA, or alerting instead.
 12. **TypeScript is pinned to 6.0** until `typescript-eslint` supports 7, and
     `openapi-typescript` uses an npm override for its TypeScript peer.
+
+### Users and permissions: remaining risks and next steps
+
+13. **No multi-factor authentication.** A stolen password is enough. Add TOTP or WebAuthn,
+    required first for roles with `user.manage`, `role.manage` or `audit.view`, with
+    recovery codes and an admin-assisted reset.
+14. **No single sign-on.** Hotel groups will want OIDC/SAML (Entra ID, Google). Keep the
+    local Admin account as a break-glass login, map identity-provider groups to roles per
+    property, and keep deactivation in sync (SCIM, or a sign-in-time check).
+15. **No manager override at the desk.** Some actions (refunds, rate overrides, early
+    check-in) need a manager's approval at the moment, without a full sign-in switch.
+    Suggested design: a manager PIN or quick re-authentication that grants one specific
+    permission for one action, audited with both the clerk and the approving manager.
+16. **The database user owns the audit tables**, so it could drop the append-only
+    trigger. Run the app as a separate PostgreSQL role with only INSERT/SELECT on audit
+    tables (migrations as the owner).
+17. **Admins see activation links for users without email.** By design (hand over in
+    person), and audited, but whoever holds the link can set that user's password. Prefer
+    giving every user an email address; consider a first-login confirmation step.
+18. **Users are global, not per property.** The users list shows everyone; with several
+    properties, scope the list to users with a role at the current property.
+19. **Sessions have an absolute lifetime (8 h) but no idle timeout**, and users cannot see
+    or end their own other sessions. Add an idle timeout for shared front desk PCs and a
+    "your sessions" page.
+20. **Passwords are checked against a bundled common-password list only.** Add a breached
+    password check (e.g. the k-anonymity Pwned Passwords API).
+21. **Roles have no version number**: two admins editing the same role at once means the
+    last save wins (both are audited). Add optimistic locking like rooms have.
+22. **Accessibility was checked with axe, keyboard-only tests and a code review, not with
+    a real screen reader.** Test the admin screens with NVDA (Windows) and VoiceOver (macOS
+    and iOS) before relying on them.
+

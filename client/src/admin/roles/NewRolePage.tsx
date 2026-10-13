@@ -9,9 +9,11 @@ import { messageFor } from '../users/form'
 import { PermissionEditor } from './PermissionEditor'
 import { useCreateRole, usePermissionCatalog } from './queries'
 import { RoleFields } from './RoleFields'
+import { useDocumentTitle } from '../../lib/useDocumentTitle'
 
 /** /admin/roles/new */
 export function NewRolePage() {
+  useDocumentTitle('Create role')
   const me = useAuthenticatedUser()
   const catalog = usePermissionCatalog()
   const create = useCreateRole()

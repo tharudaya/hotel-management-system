@@ -3,6 +3,8 @@
 Run with `uvicorn app.main:create_app --factory`; tests call `create_app(settings)`.
 """
 
+import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -26,10 +28,31 @@ from app.services.errors import (
     InvalidInputError,
     NotFoundError,
     PermissionDeniedError,
+    ServiceUnavailableError,
+    TooManyRequestsError,
 )
+from app.services.expiry import sweep_expired_users
 from app.services.permissions import sync_permission_catalog
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+async def _sweep_forever(app: FastAPI, interval_seconds: int) -> None:
+    """Expired-users sweep (services/expiry.py) every interval; errors are logged and
+    the loop goes on, so a database blip does not stop it for good."""
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            async with app.state.session_factory() as db:
+                result = await sweep_expired_users(db, app.state.event_bus)
+            if result.expired_user_ids:
+                logger.info(
+                    "Expired %d user(s), revoked %d session(s)",
+                    len(result.expired_user_ids),
+                    result.sessions_revoked,
+                )
+        except Exception:
+            logger.exception("Expired-users sweep failed")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -48,9 +71,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await sync_permission_catalog(db)
         except SQLAlchemyError, OSError:
             logger.exception("Permission catalog sync failed; continuing")
+        sweeper = (
+            asyncio.create_task(_sweep_forever(app, settings.expiry_sweep_interval_seconds))
+            if settings.expiry_sweep_interval_seconds > 0
+            else None
+        )
         try:
             yield
         finally:
+            if sweeper is not None:
+                sweeper.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await sweeper
             hub.close_all()
             await engine.dispose()
 
@@ -90,7 +122,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(DomainError)
     async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
         # Not found -> 404, missing permission -> 403, expired/used -> 410, rule-breaking
-        # input -> 422, any other business-rule
+        # input -> 422, throttled -> 429, dependency down -> 503, any other business-rule
         # rejection -> 409 Conflict. "code" lets clients react without parsing text.
         if isinstance(exc, NotFoundError):
             status_code = status.HTTP_404_NOT_FOUND
@@ -100,6 +132,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code = status.HTTP_410_GONE
         elif isinstance(exc, InvalidInputError):
             status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+        elif isinstance(exc, TooManyRequestsError):
+            return JSONResponse(
+                {"detail": exc.message, "code": exc.code},
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers={"Retry-After": str(exc.retry_after_seconds)},
+            )
+        elif isinstance(exc, ServiceUnavailableError):
+            status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         else:
             status_code = status.HTTP_409_CONFLICT
         return JSONResponse({"detail": exc.message, "code": exc.code}, status_code=status_code)

@@ -1,5 +1,5 @@
 import { type ReactNode, type SubmitEvent, useEffect, useId, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
 import type { TokenInfo } from '../api/types'
@@ -50,9 +50,18 @@ const backToSignIn = (
   </Link>
 )
 
-/** /activate/:token and /reset-password/:token. */
+/**
+ * /activate#<token> and /reset-password#<token>. The token is in the fragment, which
+ * browsers never send to a server; it is read once and then removed from the address
+ * bar (and so from history).
+ */
 export function SetPasswordPage({ kind }: { kind: LinkKind }) {
-  const { token = '' } = useParams()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [token] = useState(() => location.hash.replace(/^#/, ''))
+  useEffect(() => {
+    if (location.hash) void navigate({ pathname: location.pathname, hash: '' }, { replace: true })
+  }, [location.hash, location.pathname, navigate])
   const info = useLinkInfo(kind, token)
   const setPassword = useSetPassword(kind, token)
   const copy = COPY[kind]
@@ -66,8 +75,11 @@ export function SetPasswordPage({ kind }: { kind: LinkKind }) {
   }
 
   // The link can also turn out bad on submit (e.g. used in another tab meanwhile).
+  // No token in the fragment (or a link copied without it): nothing to check.
   const linkError =
-    linkProblem(info.error, { malformedIs422: true }) ?? linkProblem(setPassword.error)
+    token === ''
+      ? 'This link is not valid.'
+      : (linkProblem(info.error, { malformedIs422: true }) ?? linkProblem(setPassword.error))
   if (linkError) {
     return (
       <AuthShell title={copy.title} footer={backToSignIn}>
@@ -119,7 +131,7 @@ export function SetPasswordPage({ kind }: { kind: LinkKind }) {
         submitLabel={setPassword.isPending ? copy.pending : copy.submit}
         pending={setPassword.isPending}
         onSubmit={(password, handlers) => {
-          setPassword.mutate({ password }, { onError: handlers.onError })
+          setPassword.mutate(password, { onError: handlers.onError })
         }}
       />
     </AuthShell>
@@ -132,7 +144,10 @@ function linkProblem(error: Error | null, { malformedIs422 = false } = {}): stri
   if (error.status === 410 && error.code === 'token_used') return 'This link has already been used.'
   if (error.status === 410) return 'This link has expired.'
   if (error.status === 404) return 'This link is not valid.'
-  // A malformed token fails path validation; on submit, 422 means a password rule.
+  if (error.status === 429) {
+    return 'Too many attempts with invalid links. Please wait a while and try again.'
+  }
+  // A malformed token fails validation on the check; on submit, 422 means a password rule.
   if (error.status === 422 && malformedIs422) return 'This link is not valid.'
   return null
 }

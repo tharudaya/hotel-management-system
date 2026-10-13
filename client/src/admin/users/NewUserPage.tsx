@@ -16,6 +16,7 @@ import {
 } from './form'
 import { LinkIssuedResult } from './LinkIssuedResult'
 import { useAssignableRoles, useCreateUser, useUserAction } from './queries'
+import { useDocumentTitle } from '../../lib/useDocumentTitle'
 
 type NewUserField = 'full_name' | 'username' | 'email' | 'role'
 
@@ -32,6 +33,7 @@ const EMPTY = {
 
 /** /admin/users/new: create an invited user, then offer the invite. */
 export function NewUserPage() {
+  useDocumentTitle('Add user')
   const [created, setCreated] = useState<UserDetail | null>(null)
   return (
     <section aria-labelledby="new-user-heading" className="space-y-4">

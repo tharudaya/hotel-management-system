@@ -374,14 +374,15 @@ async def test_admin_actions_and_sign_ins_are_all_logged(
     invite = (await client.post(f"{USERS}/{carl}/invite")).json()["link"]
     await check(AuditAction.USER_INVITE_SENT, "admin")
     await second_client.post(
-        f"/api/auth/activate/{invite.rsplit('/', 1)[1]}", json={"password": "Tr1cky-Ferret-Lamp"}
+        "/api/auth/activate",
+        json={"token": invite.rsplit("#", 1)[1], "password": "Tr1cky-Ferret-Lamp"},
     )
     await check(AuditAction.USER_ACTIVATED, "carl")
     reset = (await client.post(f"{USERS}/{carl}/reset-password")).json()["link"]
     await check(AuditAction.USER_PASSWORD_RESET_SENT, "admin")
     await second_client.post(
-        f"/api/auth/reset-password/{reset.rsplit('/', 1)[1]}",
-        json={"password": "Brave-Otter-Kettle"},
+        "/api/auth/reset-password",
+        json={"token": reset.rsplit("#", 1)[1], "password": "Brave-Otter-Kettle"},
     )
     await check(AuditAction.USER_PASSWORD_RESET, "carl")
 

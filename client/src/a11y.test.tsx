@@ -63,13 +63,10 @@ describe('accessibility (axe)', () => {
   it('activation page: form, validation errors and success', async () => {
     const token = 'x'.repeat(43)
     mockApi({
-      [`GET /api/auth/activate/${token}`]: () => [
-        200,
-        { username: 'newbie', full_name: 'New Bie' },
-      ],
-      [`POST /api/auth/activate/${token}`]: () => [200, { detail: 'ok' }],
+      ['POST /api/auth/activate/check']: () => [200, { username: 'newbie', full_name: 'New Bie' }],
+      ['POST /api/auth/activate']: () => [200, { detail: 'ok' }],
     })
-    renderApp(`/activate/${token}`)
+    renderApp(`/activate#${token}`)
     await screen.findByRole('heading', { name: 'Welcome, New Bie' })
     await expectNoViolations()
 
@@ -89,12 +86,9 @@ describe('accessibility (axe)', () => {
   it('expired reset link', async () => {
     const token = 'x'.repeat(43)
     mockApi({
-      [`GET /api/auth/reset-password/${token}`]: () => [
-        410,
-        { detail: 'x', code: 'token_expired' },
-      ],
+      ['POST /api/auth/reset-password/check']: () => [410, { detail: 'x', code: 'token_expired' }],
     })
-    renderApp(`/reset-password/${token}`)
+    renderApp(`/reset-password#${token}`)
     await screen.findByText('This link has expired.')
     await expectNoViolations()
   })

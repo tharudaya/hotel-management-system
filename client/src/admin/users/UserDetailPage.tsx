@@ -35,6 +35,7 @@ import {
   useUserAudit,
 } from './queries'
 import { StatusBadge } from './StatusBadge'
+import { useDocumentTitle } from '../../lib/useDocumentTitle'
 
 const sectionClass = 'space-y-4 rounded-lg bg-white p-6 shadow-sm'
 /** /admin/users/:userId */
@@ -44,6 +45,7 @@ export function UserDetailPage() {
   const id = Number(userId)
   const valid = Number.isInteger(id) && id > 0
   const user = useUser(valid ? id : 0)
+  useDocumentTitle(user.data?.full_name ?? 'User')
   const listSearch = listSearchFrom(location.state)
 
   const back = (

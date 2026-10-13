@@ -1,25 +1,33 @@
 """Public account endpoints: activate an invite, reset a password, forgot password.
 
-No session needed. Links carry a single-use token; see services/account_tokens.py.
+No session needed. Links carry a single-use token, sent in the request body (never in
+the URL path, which would land in access logs); see services/account_tokens.py.
 """
 
-from typing import Annotated
-
-from fastapi import APIRouter, BackgroundTasks, Path, status
+from fastapi import APIRouter, BackgroundTasks, status
 
 from app.api.deps import ClientInfoDep, EmailSenderDep, EventBusDep, SettingsDep
 from app.db.session import SessionDep
 from app.models import TokenPurpose
-from app.schemas.account import ForgotPasswordRequest, Message, SetPasswordRequest, TokenInfo
+from app.schemas.account import (
+    ForgotPasswordRequest,
+    Message,
+    SetPasswordRequest,
+    TokenInfo,
+    TokenRequest,
+)
 from app.schemas.actions import ErrorResponse
 from app.services import account_tokens
 
 router: APIRouter = APIRouter(prefix="/auth", tags=["account"])
 
-Token = Annotated[str, Path(min_length=20, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")]
 TOKEN_ERRORS: dict[int | str, dict[str, object]] = {
     status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": "Unknown link"},
     status.HTTP_410_GONE: {"model": ErrorResponse, "description": "Link expired or used"},
+    status.HTTP_429_TOO_MANY_REQUESTS: {
+        "model": ErrorResponse,
+        "description": "Too many rejected links from this address",
+    },
 }
 SET_PASSWORD_ERRORS: dict[int | str, dict[str, object]] = {
     **TOKEN_ERRORS,
@@ -30,15 +38,18 @@ SET_PASSWORD_ERRORS: dict[int | str, dict[str, object]] = {
 }
 
 
-@router.get("/activate/{token}", responses=TOKEN_ERRORS)
-async def check_invite(token: Token, db: SessionDep, settings: SettingsDep) -> TokenInfo:
+@router.post("/activate/check", responses=TOKEN_ERRORS)
+async def check_invite(
+    body: TokenRequest, db: SessionDep, settings: SettingsDep, client: ClientInfoDep
+) -> TokenInfo:
     """Who the invite is for (username and name only)."""
-    return await account_tokens.token_info(db, settings, token=token, purpose=TokenPurpose.INVITE)
+    return await account_tokens.token_info(
+        db, settings, token=body.token, purpose=TokenPurpose.INVITE, client=client
+    )
 
 
-@router.post("/activate/{token}", responses=SET_PASSWORD_ERRORS)
+@router.post("/activate", responses=SET_PASSWORD_ERRORS)
 async def activate(
-    token: Token,
     body: SetPasswordRequest,
     db: SessionDep,
     settings: SettingsDep,
@@ -50,7 +61,7 @@ async def activate(
         db,
         settings,
         bus,
-        token=token,
+        token=body.token,
         purpose=TokenPurpose.INVITE,
         password=body.password,
         client=client,
@@ -58,16 +69,17 @@ async def activate(
     return Message(detail="Your account is ready. You can now sign in.")
 
 
-@router.get("/reset-password/{token}", responses=TOKEN_ERRORS)
-async def check_reset(token: Token, db: SessionDep, settings: SettingsDep) -> TokenInfo:
+@router.post("/reset-password/check", responses=TOKEN_ERRORS)
+async def check_reset(
+    body: TokenRequest, db: SessionDep, settings: SettingsDep, client: ClientInfoDep
+) -> TokenInfo:
     return await account_tokens.token_info(
-        db, settings, token=token, purpose=TokenPurpose.PASSWORD_RESET
+        db, settings, token=body.token, purpose=TokenPurpose.PASSWORD_RESET, client=client
     )
 
 
-@router.post("/reset-password/{token}", responses=SET_PASSWORD_ERRORS)
+@router.post("/reset-password", responses=SET_PASSWORD_ERRORS)
 async def reset_password(
-    token: Token,
     body: SetPasswordRequest,
     db: SessionDep,
     settings: SettingsDep,
@@ -79,7 +91,7 @@ async def reset_password(
         db,
         settings,
         bus,
-        token=token,
+        token=body.token,
         purpose=TokenPurpose.PASSWORD_RESET,
         password=body.password,
         client=client,

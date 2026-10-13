@@ -2,8 +2,9 @@
 
 All rules live here, not in the routers:
 
-- You can only manage users whose permissions are a subset of yours, and only assign
-  roles whose permissions are a subset of yours (no privilege escalation).
+- You can only manage users whose permissions are a subset of yours, at every property
+  where they have a role (checked against what you hold at that property), and only
+  assign roles whose permissions are a subset of yours (no privilege escalation).
 - You cannot deactivate yourself, change your own role, or expire yourself.
 - A property always keeps at least one active Admin (not deactivated, not expired,
   not merely invited). Changes that could remove the last one take a row lock on the
@@ -24,6 +25,7 @@ from sqlalchemy import (
     not_,
     or_,
     select,
+    update,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +42,7 @@ from app.models import (
     TokenPurpose,
     User,
     UserPropertyRole,
+    UserToken,
 )
 from app.realtime.bus import EventBus
 from app.schemas.account import LinkIssued
@@ -67,8 +70,17 @@ from app.services.account_tokens import (
 )
 from app.services.audit import ClientInfo, record_change
 from app.services.auth import publish_sessions_ended, revoke_user_sessions
-from app.services.errors import DomainError, NotFoundError, PermissionDeniedError
-from app.services.permissions import publish_permissions_changed, user_can_act
+from app.services.errors import (
+    DomainError,
+    NotFoundError,
+    PermissionDeniedError,
+    ServiceUnavailableError,
+)
+from app.services.permissions import (
+    get_effective_permissions,
+    publish_permissions_changed,
+    user_can_act,
+)
 
 PROFILE_FIELDS: tuple[str, ...] = (
     "full_name",
@@ -462,14 +474,24 @@ class UserAdminService:
         await self.db.commit()
 
         link = link_for(self.settings, purpose, token)
-        if target.email and await deliver(
-            self.email_sender, compose_email(self.settings, purpose, target, link)
-        ):
+        if target.email is None:
+            # No address: show the link once so the admin can pass it on in person.
+            return LinkIssued(delivery="link", sent_to=None, link=link, expires_at=expires_at)
+        if await deliver(self.email_sender, compose_email(self.settings, purpose, target, link)):
             return LinkIssued(
                 delivery="email", sent_to=mask_email(target.email), link=None, expires_at=expires_at
             )
-        # No address, or sending failed: show the link once so the admin can pass it on.
-        return LinkIssued(delivery="link", sent_to=None, link=link, expires_at=expires_at)
+        # Sending failed. Never fall back to showing the link: for a user with an email
+        # address that would let an admin take over the account. Kill the unseen token.
+        await self.db.execute(
+            update(UserToken)
+            .where(UserToken.user_id == target.id, UserToken.used_at.is_(None))
+            .values(expires_at=func.now())
+        )
+        await self.db.commit()
+        raise ServiceUnavailableError(
+            "The email could not be sent. Try again later.", code="email_failed"
+        )
 
     @staticmethod
     def _ensure_reachable(target: User) -> None:
@@ -513,8 +535,7 @@ class UserAdminService:
         )
         if P.USER_MANAGE not in self.actor_permissions:
             return dict.fromkeys(everything, "You do not have permission to manage users.")
-        role = await self._role_of(target.id)
-        if role is not None and not await self._role_permissions(role) <= self.actor_permissions:
+        if await self._outranks_actor(target):
             return dict.fromkeys(everything, f"{target.username} has permissions you don't have.")
 
         now = datetime.now(UTC)
@@ -550,12 +571,34 @@ class UserAdminService:
 
     async def _ensure_can_manage(self, target: User) -> None:
         """Only users whose permissions are a subset of yours (no managing your betters)."""
-        role = await self._role_of(target.id)
-        target_permissions = await self._role_permissions(role) if role else frozenset()
-        if not target_permissions <= self.actor_permissions:
+        if await self._outranks_actor(target):
             raise PermissionDeniedError(
                 f"You cannot manage {target.username}: they have permissions you don't have."
             )
+
+    async def _outranks_actor(self, target: User) -> bool:
+        """True if, at any property where the target has a role, it grants something the
+        actor does not hold *at that property*. Users are global, so an admin of one
+        property must not deactivate, reset or edit another property's admin."""
+        rows = (
+            await self.db.execute(
+                select(UserPropertyRole.property_id, Role)
+                .join(Role, Role.id == UserPropertyRole.role_id)
+                .where(UserPropertyRole.user_id == target.id)
+            )
+        ).all()
+        for property_id, role in rows:
+            granted = await self._role_permissions(role)
+            if not granted:
+                continue
+            held = (
+                self.actor_permissions
+                if property_id == self.property_id
+                else await get_effective_permissions(self.db, self.actor.id, property_id)
+            )
+            if not granted <= held:
+                return True
+        return False
 
     async def _ensure_not_last_admin(self, target: User, what: str) -> None:
         """Refuse if `target` is this property's last active Admin.
@@ -647,16 +690,6 @@ class UserAdminService:
                 UserPropertyRole.property_id == self.property_id,
             )
             .with_for_update()
-        )
-
-    async def _role_of(self, user_id: int) -> Role | None:
-        return await self.db.scalar(
-            select(Role)
-            .join(UserPropertyRole, UserPropertyRole.role_id == Role.id)
-            .where(
-                UserPropertyRole.user_id == user_id,
-                UserPropertyRole.property_id == self.property_id,
-            )
         )
 
     @staticmethod

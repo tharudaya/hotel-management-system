@@ -39,6 +39,7 @@ class AuditEventType(StrEnum):
     LOGIN_BLOCKED = "auth.login_blocked"
     LOGOUT = "auth.logout"
     PASSWORD_RESET_REQUESTED = "auth.password_reset_requested"
+    LINK_REJECTED = "auth.link_rejected"  # unknown, used or expired invite/reset link
 
 
 class AuditEvent(Base):

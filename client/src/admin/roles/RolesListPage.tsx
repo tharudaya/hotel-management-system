@@ -16,9 +16,11 @@ import { messageFor } from '../users/form'
 import { noticeFrom } from './notice'
 import { useCreateRole, useRoles } from './queries'
 import { RoleTypeBadge } from './RoleTypeBadge'
+import { useDocumentTitle } from '../../lib/useDocumentTitle'
 
 /** /admin/roles */
 export function RolesListPage() {
+  useDocumentTitle('Roles')
   const roles = useRoles()
   const { can } = usePermissions()
   const location = useLocation()

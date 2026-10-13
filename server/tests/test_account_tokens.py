@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
 from app.models import AuditAction, AuditEvent, AuditLog, TokenPurpose, User, UserToken
 from app.services.account_tokens import FORGOT_MAX_PER_EMAIL, FORGOT_RESPONSE
 from tests.conftest import MakeUser, RecordingEmailSender, Roles
@@ -39,11 +40,11 @@ async def invited(make_user: MakeUser, db: AsyncSession, *, email: str | None = 
 
 
 def token_from(link: str) -> str:
-    return link.rsplit("/", 1)[1]
+    return link.rsplit("#", 1)[1]
 
 
 def token_in_email(body: str) -> str:
-    match = re.search(r"/(?:activate|reset-password)/([A-Za-z0-9_-]+)", body)
+    match = re.search(r"/(?:activate|reset-password)#([A-Za-z0-9_-]+)", body)
     assert match, body
     return match.group(1)
 
@@ -75,7 +76,7 @@ async def test_invite_without_email_returns_the_link_once(
     assert response.status_code == 200
     data = response.json()
     assert (data["delivery"], data["sent_to"]) == ("link", None)
-    assert data["link"].startswith("http://localhost:5173/activate/")
+    assert data["link"].startswith("http://localhost:5173/activate#")
     expires = datetime.fromisoformat(data["expires_at"])
     assert timedelta(hours=71, minutes=59) < expires - datetime.now(UTC) <= timedelta(hours=72)
     assert emails.sent == []
@@ -103,21 +104,49 @@ async def test_invite_with_email_sends_it_and_hides_the_link(
     assert message.to == "newbie@hotel.example"
     assert "newbie" in message.body and "72 hours" in message.body
     assert (
-        await client.get(f"/api/auth/activate/{token_in_email(message.body)}")
+        await client.post("/api/auth/activate/check", json={"token": token_in_email(message.body)})
     ).status_code == 200
 
 
-async def test_failed_email_falls_back_to_the_link(
+async def test_failed_email_never_reveals_the_link(
     client: AsyncClient, make_user: MakeUser, db_session: AsyncSession, emails: RecordingEmailSender
 ) -> None:
+    # Showing the link to the admin for a user with an email address would let the
+    # admin take over that account.
     await as_admin(client, make_user)
     user = await invited(make_user, db_session, email="newbie@hotel.example")
     emails.fail = True
 
-    data = (await client.post(f"{USERS}/{user.id}/invite")).json()
+    response = await client.post(f"{USERS}/{user.id}/invite")
 
-    assert data["delivery"] == "link"
-    assert data["link"].startswith("http://localhost:5173/activate/")
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "The email could not be sent. Try again later.",
+        "code": "email_failed",
+    }
+    assert "link" not in response.text
+    # The token that was issued but never delivered is already dead.
+    [token] = await tokens(db_session, user)
+    assert token.expires_at <= datetime.now(UTC)
+
+
+async def test_links_keep_the_token_out_of_the_url_path(
+    client: AsyncClient, make_user: MakeUser, db_session: AsyncSession, emails: RecordingEmailSender
+) -> None:
+    await as_admin(client, make_user)
+    user = await invited(make_user, db_session, email="newbie@hotel.example")
+    await client.post(f"{USERS}/{user.id}/invite")
+
+    [message] = emails.sent
+    link = re.search(r"http\S+", message.body)
+    assert link is not None
+    # Everything after "#" stays in the browser; servers only see /activate.
+    path, _, token = link.group(0).partition("#")
+    assert path == "http://localhost:5173/activate"
+    assert len(token) >= 43
+    # The API no longer takes tokens in the path.
+    assert (await client.get(f"/api/auth/activate/{token}")).status_code in (404, 405)
+    assert (await client.post(f"/api/auth/activate/{token}", json={})).status_code in (404, 405)
 
 
 async def test_resending_an_invite_invalidates_the_older_link(
@@ -129,10 +158,12 @@ async def test_resending_an_invite_invalidates_the_older_link(
 
     second = token_from(await invite_link(client, user))
 
-    old = await client.get(f"/api/auth/activate/{first}")
+    old = await client.post("/api/auth/activate/check", json={"token": first})
     assert old.status_code == 410
     assert old.json()["code"] == "token_expired"
-    assert (await client.get(f"/api/auth/activate/{second}")).status_code == 200
+    assert (
+        await client.post("/api/auth/activate/check", json={"token": second})
+    ).status_code == 200
 
 
 @pytest.mark.parametrize(
@@ -191,7 +222,7 @@ async def test_activation_link_reveals_only_username_and_name(
     await client.post(f"{USERS}/{user.id}/invite")
     token = token_in_email(emails.sent[-1].body)
 
-    response = await client.get(f"/api/auth/activate/{token}")
+    response = await client.post("/api/auth/activate/check", json={"token": token})
 
     assert response.status_code == 200
     assert response.json() == {"username": "newbie", "full_name": "New Bie"}
@@ -208,7 +239,7 @@ async def test_activate_sets_the_password_without_logging_in(
     token = token_from(await invite_link(client, user))
 
     response = await second_client.post(
-        f"/api/auth/activate/{token}", json={"password": GOOD_PASSWORD}
+        "/api/auth/activate", json={"token": token, "password": GOOD_PASSWORD}
     )
 
     assert response.status_code == 200
@@ -238,13 +269,13 @@ async def test_token_cannot_be_reused(
     user = await invited(make_user, db_session)
     token = token_from(await invite_link(client, user))
     assert (
-        await client.post(f"/api/auth/activate/{token}", json={"password": GOOD_PASSWORD})
+        await client.post("/api/auth/activate", json={"token": token, "password": GOOD_PASSWORD})
     ).status_code == 200
 
     again = await client.post(
-        f"/api/auth/activate/{token}", json={"password": "Another-Fine-Pass9"}
+        "/api/auth/activate", json={"token": token, "password": "Another-Fine-Pass9"}
     )
-    check = await client.get(f"/api/auth/activate/{token}")
+    check = await client.post("/api/auth/activate/check", json={"token": token})
 
     assert again.status_code == check.status_code == 410
     assert again.json() == {"detail": "This link has already been used.", "code": "token_used"}
@@ -260,8 +291,8 @@ async def test_expired_token(
         update(UserToken).values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
     )
 
-    get = await client.get(f"/api/auth/activate/{token}")
-    post = await client.post(f"/api/auth/activate/{token}", json={"password": GOOD_PASSWORD})
+    get = await client.post("/api/auth/activate/check", json={"token": token})
+    post = await client.post("/api/auth/activate", json={"token": token, "password": GOOD_PASSWORD})
 
     assert get.status_code == post.status_code == 410
     assert post.json()["code"] == "token_expired"
@@ -275,17 +306,82 @@ async def test_expired_token(
 )
 async def test_wrong_token(client: AsyncClient, token: str) -> None:
     for response in (
-        await client.get(f"/api/auth/activate/{token}"),
-        await client.post(f"/api/auth/activate/{token}", json={"password": GOOD_PASSWORD}),
-        await client.get(f"/api/auth/reset-password/{token}"),
+        await client.post("/api/auth/activate/check", json={"token": token}),
+        await client.post("/api/auth/activate", json={"token": token, "password": GOOD_PASSWORD}),
+        await client.post("/api/auth/reset-password/check", json={"token": token}),
     ):
         assert response.status_code == 404
         assert response.json() == {"detail": "This link is not valid.", "code": "token_invalid"}
 
 
-@pytest.mark.parametrize("token", ["short", "has spaces in it......", "x" * 129, "bad%2Fslash" * 3])
-async def test_malformed_token(client: AsyncClient, token: str) -> None:
-    assert (await client.get(f"/api/auth/activate/{token}")).status_code in (404, 422)
+@pytest.mark.parametrize(
+    "token", ["short", "has spaces in it......", "x" * 129, "bad/slash" * 3, 12345678901234567890]
+)
+async def test_malformed_token(client: AsyncClient, token: object) -> None:
+    assert (await client.post("/api/auth/activate/check", json={"token": token})).status_code == 422
+
+
+# --- throttling -------------------------------------------------------------------------------
+
+
+async def test_rejected_links_are_recorded_without_the_token(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    token = "y" * 43
+
+    await client.post("/api/auth/reset-password/check", json={"token": token})
+
+    event = await db_session.scalar(
+        select(AuditEvent).where(AuditEvent.event_type == "auth.link_rejected")
+    )
+    assert event is not None
+    assert event.details == {"purpose": "password_reset", "reason": "token_invalid"}
+    assert event.ip_address is not None
+    assert token not in str(event.details)
+
+
+async def test_too_many_rejected_links_are_throttled_per_ip(
+    client: AsyncClient,
+    make_user: MakeUser,
+    db_session: AsyncSession,
+    test_settings: Settings,
+) -> None:
+    await as_admin(client, make_user)
+    user = await invited(make_user, db_session)
+    good = token_from(await invite_link(client, user))
+
+    for i in range(test_settings.link_max_failures_per_ip):
+        wrong = await client.post("/api/auth/activate/check", json={"token": f"{i:x}" * 43})
+        assert wrong.status_code == 404
+
+    # Now even a valid link is refused from this address, both for checking and using.
+    blocked = await client.post("/api/auth/activate/check", json={"token": good})
+    used = await client.post("/api/auth/activate", json={"token": good, "password": GOOD_PASSWORD})
+    assert blocked.status_code == used.status_code == 429
+    assert blocked.headers["Retry-After"] == str(test_settings.login_failure_window_seconds)
+    assert blocked.json()["code"] == "too_many_attempts"
+    await db_session.refresh(user)
+    assert user.password_hash is None
+
+
+async def test_password_rule_failures_do_not_count_towards_the_throttle(
+    client: AsyncClient,
+    make_user: MakeUser,
+    db_session: AsyncSession,
+    test_settings: Settings,
+) -> None:
+    await as_admin(client, make_user)
+    user = await invited(make_user, db_session)
+    token = token_from(await invite_link(client, user))
+
+    for _ in range(test_settings.link_max_failures_per_ip + 1):
+        response = await client.post(
+            "/api/auth/activate", json={"token": token, "password": "short"}
+        )
+        assert response.status_code == 422
+
+    ok = await client.post("/api/auth/activate", json={"token": token, "password": GOOD_PASSWORD})
+    assert ok.status_code == 200
 
 
 async def test_invite_token_does_not_work_as_a_reset_token(
@@ -295,7 +391,9 @@ async def test_invite_token_does_not_work_as_a_reset_token(
     user = await invited(make_user, db_session)
     token = token_from(await invite_link(client, user))
 
-    assert (await client.get(f"/api/auth/reset-password/{token}")).status_code == 404
+    assert (
+        await client.post("/api/auth/reset-password/check", json={"token": token})
+    ).status_code == 404
 
 
 async def test_link_dies_when_the_user_is_deactivated(
@@ -306,7 +404,9 @@ async def test_link_dies_when_the_user_is_deactivated(
     token = token_from(await invite_link(client, user))
     await client.post(f"{USERS}/{user.id}/deactivate")
 
-    response = await client.post(f"/api/auth/activate/{token}", json={"password": GOOD_PASSWORD})
+    response = await client.post(
+        "/api/auth/activate", json={"token": token, "password": GOOD_PASSWORD}
+    )
 
     assert response.status_code == 404
 
@@ -331,12 +431,12 @@ async def test_password_rules(
     user = await invited(make_user, db_session)
     token = token_from(await invite_link(client, user))
 
-    response = await client.post(f"/api/auth/activate/{token}", json={"password": password})
+    response = await client.post("/api/auth/activate", json={"token": token, "password": password})
 
     assert response.status_code == 422
     assert response.json()["code"] == code
     # The link still works for another attempt.
-    assert (await client.get(f"/api/auth/activate/{token}")).status_code == 200
+    assert (await client.post("/api/auth/activate/check", json={"token": token})).status_code == 200
 
 
 @pytest.mark.parametrize(
@@ -350,7 +450,9 @@ async def test_set_password_validation(
     user = await invited(make_user, db_session)
     token = token_from(await invite_link(client, user))
 
-    assert (await client.post(f"/api/auth/activate/{token}", json=payload)).status_code == 422
+    assert (
+        await client.post("/api/auth/activate", json={"token": token, **payload})
+    ).status_code == 422
 
 
 # --- password reset ----------------------------------------------------------------------------
@@ -372,13 +474,15 @@ async def test_admin_reset_then_user_sets_new_password_and_old_sessions_end(
     expires = datetime.fromisoformat(data["expires_at"])
     assert timedelta(minutes=59) < expires - datetime.now(UTC) <= timedelta(hours=1)
     token = token_from(data["link"])
-    assert data["link"].startswith("http://localhost:5173/reset-password/")
-    assert (await client.get(f"/api/auth/reset-password/{token}")).json() == {
+    assert data["link"].startswith("http://localhost:5173/reset-password#")
+    assert (await client.post("/api/auth/reset-password/check", json={"token": token})).json() == {
         "username": "alice",
         "full_name": "Alice",
     }
 
-    reset = await client.post(f"/api/auth/reset-password/{token}", json={"password": GOOD_PASSWORD})
+    reset = await client.post(
+        "/api/auth/reset-password", json={"token": token, "password": GOOD_PASSWORD}
+    )
 
     assert reset.status_code == 200
     assert (await second_client.get("/api/auth/me")).status_code == 401  # logged out
@@ -409,7 +513,9 @@ async def test_forgot_password_sends_a_reset_link(
     [message] = emails.sent
     assert message.to == "alice@hotel.example" and "1 hour" in message.body
     token = token_in_email(message.body)
-    assert (await client.get(f"/api/auth/reset-password/{token}")).status_code == 200
+    assert (
+        await client.post("/api/auth/reset-password/check", json={"token": token})
+    ).status_code == 200
     [token_row] = await tokens(db_session, user)
     assert token_row.created_by is None
 
@@ -482,7 +588,7 @@ async def test_plain_tokens_never_reach_the_database(
     reset = token_in_email(emails.sent[-1].body)
     await client.post("/api/auth/forgot-password", json={"email": "alice@hotel.example"})
     forgot = token_in_email(emails.sent[-1].body)
-    await client.post(f"/api/auth/activate/{invite}", json={"password": GOOD_PASSWORD})
+    await client.post("/api/auth/activate", json={"token": invite, "password": GOOD_PASSWORD})
 
     # Every text column of every table, as Postgres sees it.
     tables = (

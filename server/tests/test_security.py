@@ -48,10 +48,10 @@ ACCESS: dict[tuple[str, str], str] = {
     ("POST", "/api/admin/roles"): P.ROLE_MANAGE,
     ("PATCH", "/api/admin/roles/{role_id}"): P.ROLE_MANAGE,
     ("DELETE", "/api/admin/roles/{role_id}"): P.ROLE_MANAGE,
-    ("GET", "/api/auth/activate/{token}"): PUBLIC,
-    ("POST", "/api/auth/activate/{token}"): PUBLIC,
-    ("GET", "/api/auth/reset-password/{token}"): PUBLIC,
-    ("POST", "/api/auth/reset-password/{token}"): PUBLIC,
+    ("POST", "/api/auth/activate/check"): PUBLIC,
+    ("POST", "/api/auth/activate"): PUBLIC,
+    ("POST", "/api/auth/reset-password/check"): PUBLIC,
+    ("POST", "/api/auth/reset-password"): PUBLIC,
     ("POST", "/api/auth/forgot-password"): PUBLIC,
 }
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {r.name: r.permissions for r in DEFAULT_ROLES}

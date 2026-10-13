@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     login_failure_window_seconds: int = 15 * 60
     login_max_failures_per_username: int = 5
     login_max_failures_per_ip: int = 20
+    # Invite/reset links: rejected link checks (unknown, used, expired) per IP per
+    # LOGIN_FAILURE_WINDOW_SECONDS before further attempts get 429.
+    link_max_failures_per_ip: int = 10
+    # How often the API process sweeps expired users (revoke sessions, audit once);
+    # 0 disables it (then run `python -m app.scripts.expire_users` from cron).
+    expiry_sweep_interval_seconds: int = 300
 
     # WebSocket: the server pings this often and closes sockets that have not
     # answered for two intervals; the session is re-validated on each ping.

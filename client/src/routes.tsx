@@ -27,8 +27,9 @@ export const routes: RouteObject[] = [
       // Signed-out pages.
       { path: '/login', element: <LoginPage /> },
       { path: '/forgot-password', element: <ForgotPasswordPage /> },
-      { path: '/activate/:token', element: <SetPasswordPage kind="activate" /> },
-      { path: '/reset-password/:token', element: <SetPasswordPage kind="reset-password" /> },
+      // Links carry the token in the fragment: /activate#<token>.
+      { path: '/activate', element: <SetPasswordPage kind="activate" /> },
+      { path: '/reset-password', element: <SetPasswordPage kind="reset-password" /> },
       {
         element: <ProtectedRoute />,
         children: [

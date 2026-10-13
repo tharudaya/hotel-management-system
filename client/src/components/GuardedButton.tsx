@@ -1,4 +1,4 @@
-import { type ComponentProps, useId } from 'react'
+import { type ComponentProps, useId, useState } from 'react'
 
 type GuardedButtonProps = Omit<ComponentProps<'button'>, 'type'> & {
   /** Why the action is not allowed; null/undefined when it is. */
@@ -19,6 +19,9 @@ export function GuardedButton({
   ...rest
 }: GuardedButtonProps) {
   const tooltipId = useId()
+  // Escape hides the tooltip without moving focus (WCAG 1.4.13); it comes back on the
+  // next hover or focus.
+  const [dismissed, setDismissed] = useState(false)
   const isBlocked = Boolean(blockedReason)
   return (
     <span className="group relative inline-flex">
@@ -31,6 +34,21 @@ export function GuardedButton({
           if (isBlocked) e.preventDefault()
           else onClick?.(e)
         }}
+        onKeyDown={(e) => {
+          if (isBlocked && e.key === 'Escape' && !dismissed) {
+            e.stopPropagation()
+            setDismissed(true)
+          }
+          rest.onKeyDown?.(e)
+        }}
+        onBlur={(e) => {
+          setDismissed(false)
+          rest.onBlur?.(e)
+        }}
+        onMouseEnter={(e) => {
+          setDismissed(false)
+          rest.onMouseEnter?.(e)
+        }}
         className={isBlocked ? `${className} cursor-not-allowed opacity-60` : className}
       >
         {children}
@@ -39,7 +57,7 @@ export function GuardedButton({
         <span
           id={tooltipId}
           role="tooltip"
-          className="pointer-events-none invisible absolute bottom-full left-1/2 z-20 mb-2 w-60 -translate-x-1/2 rounded-md bg-slate-900 px-3 py-2 text-xs text-white shadow-lg group-focus-within:visible group-hover:visible"
+          className={`pointer-events-none invisible absolute bottom-full left-1/2 z-20 mb-2 w-60 -translate-x-1/2 rounded-md bg-slate-900 px-3 py-2 text-xs text-white shadow-lg ${dismissed ? '' : 'group-focus-within:visible group-hover:visible'}`}
         >
           {blockedReason}
         </span>

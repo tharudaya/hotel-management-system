@@ -329,7 +329,7 @@ describe('add user', () => {
         {
           delivery: 'link',
           sent_to: null,
-          link: 'http://localhost:5173/activate/abc',
+          link: 'http://localhost:5173/activate#abc',
           expires_at: '2026-10-15T12:00:00Z',
         },
       ],
@@ -376,7 +376,7 @@ describe('add user', () => {
 
     await user.click(screen.getByRole('button', { name: 'Show activation link' }))
     expect(await screen.findByLabelText('Activation link')).toHaveValue(
-      'http://localhost:5173/activate/abc',
+      'http://localhost:5173/activate#abc',
     )
     await user.click(screen.getByRole('button', { name: 'Copy' }))
     expect(await screen.findByText(/Link copied/)).toBeInTheDocument()
@@ -642,7 +642,7 @@ describe('user detail: confirmation dialogs', () => {
         {
           delivery: 'link',
           sent_to: null,
-          link: 'http://localhost:5173/reset-password/xyz',
+          link: 'http://localhost:5173/reset-password#xyz',
           expires_at: '2026-10-12T14:00:00Z',
         },
       ],
@@ -660,7 +660,7 @@ describe('user detail: confirmation dialogs', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Reset link ready' })
     expect(within(dialog).getByLabelText('Activation link')).toHaveValue(
-      'http://localhost:5173/reset-password/xyz',
+      'http://localhost:5173/reset-password#xyz',
     )
     await user.click(within(dialog).getByRole('button', { name: 'Done' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()

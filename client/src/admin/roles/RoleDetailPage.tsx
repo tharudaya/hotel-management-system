@@ -18,6 +18,7 @@ import { PermissionEditor } from './PermissionEditor'
 import { RoleFields } from './RoleFields'
 import { useDeleteRole, usePermissionCatalog, useRole, useUpdateRole } from './queries'
 import { RoleTypeBadge } from './RoleTypeBadge'
+import { useDocumentTitle } from '../../lib/useDocumentTitle'
 
 const sectionClass = 'space-y-4 rounded-lg bg-white p-6 shadow-sm'
 
@@ -27,6 +28,7 @@ export function RoleDetailPage() {
   const id = Number(roleId)
   const valid = Number.isInteger(id) && id > 0
   const role = useRole(valid ? id : 0)
+  useDocumentTitle(role.data?.name ?? 'Role')
   const catalog = usePermissionCatalog()
 
   const back = (

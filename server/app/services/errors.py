@@ -49,3 +49,19 @@ class InvalidInputError(DomainError):
     """Well-formed input that breaks a business rule (e.g. password policy): HTTP 422."""
 
     default_code = "invalid_input"
+
+
+class TooManyRequestsError(DomainError):
+    """Throttled: HTTP 429 with Retry-After."""
+
+    default_code = "too_many_requests"
+
+    def __init__(self, message: str, *, retry_after_seconds: int, code: str | None = None) -> None:
+        super().__init__(message, code=code)
+        self.retry_after_seconds = retry_after_seconds
+
+
+class ServiceUnavailableError(DomainError):
+    """A dependency (e.g. the email service) failed: HTTP 503."""
+
+    default_code = "service_unavailable"
