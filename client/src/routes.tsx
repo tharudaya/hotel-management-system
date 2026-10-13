@@ -5,6 +5,9 @@ import { AuditLogPage } from './admin/auditlog/AuditLogPage'
 import { NewRolePage } from './admin/roles/NewRolePage'
 import { RoleDetailPage } from './admin/roles/RoleDetailPage'
 import { RolesListPage } from './admin/roles/RolesListPage'
+import { RoomsLayout } from './admin/rooms/RoomsLayout'
+import { RoomsPage } from './admin/rooms/RoomsPage'
+import { RoomTypesPage } from './admin/rooms/RoomTypesPage'
 import { NewUserPage } from './admin/users/NewUserPage'
 import { UserDetailPage } from './admin/users/UserDetailPage'
 import { UsersListPage } from './admin/users/UsersListPage'
@@ -76,6 +79,18 @@ export const routes: RouteObject[] = [
                         ),
                       },
                       { path: ':roleId', element: <RoleDetailPage /> },
+                    ],
+                  },
+                  {
+                    path: 'rooms',
+                    element: (
+                      <RequirePermission permission={P.ROOM_MANAGE}>
+                        <RoomsLayout />
+                      </RequirePermission>
+                    ),
+                    children: [
+                      { index: true, element: <RoomsPage /> },
+                      { path: 'types', element: <RoomTypesPage /> },
                     ],
                   },
                   {

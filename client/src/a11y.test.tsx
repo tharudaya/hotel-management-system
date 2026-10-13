@@ -280,6 +280,62 @@ describe('accessibility (axe)', () => {
     await expectNoViolations()
   })
 
+  it('room setup: rooms, the room form and room types', async () => {
+    const std = {
+      id: 1,
+      code: 'STD',
+      name: 'Standard Queen',
+      max_occupancy: 2,
+      bed_setup: '1 queen',
+      description: null,
+      is_active: true,
+      active_room_count: 1,
+      upcoming_reservations: 0,
+      retire_blocked: 'Room type STD still has 1 active room.',
+      created_at: '2026-01-01T09:00:00Z',
+      updated_at: '2026-01-01T09:00:00Z',
+    }
+    const room = {
+      id: 101,
+      number: '101',
+      floor: 1,
+      room_type: { id: 1, code: 'STD', name: 'Standard Queen', is_active: true },
+      notes: null,
+      housekeeping_status: 'inspected',
+      is_active: true,
+      retired_at: null,
+      retired_by: null,
+      guest_in_house: true,
+      upcoming_reservations: 0,
+      retire_blocked: 'Room 101 has a guest checked in.',
+      type_change_blocked: 'Room 101 has a guest checked in.',
+      version: 1,
+      created_at: '2026-01-01T09:00:00Z',
+      updated_at: '2026-01-01T09:00:00Z',
+    }
+    mockApi({
+      'GET /api/auth/me': () => [200, ADMIN_USER],
+      'GET /api/hotel': () => [200, HOTEL],
+      'GET /api/admin/rooms?status=active': () => [200, [room]],
+      'GET /api/admin/rooms?status=all': () => [200, [room]],
+      'GET /api/admin/room-types?include_retired=true': () => [200, [std]],
+      'GET /api/admin/room-types': () => [200, [std]],
+    })
+    const router = renderApp('/admin/rooms')
+    await screen.findByRole('table', { name: 'Rooms by floor' })
+    await expectNoViolations()
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Edit room 101' }))
+    await screen.findByRole('dialog', { name: 'Edit room 101' })
+    await expectNoViolations()
+    await user.keyboard('{Escape}')
+
+    await router.navigate('/admin/rooms/types')
+    await screen.findByRole('table', { name: 'Room types' })
+    await expectNoViolations()
+  })
+
   it('not-found page', async () => {
     mockApi({})
     renderApp('/no/such/page')

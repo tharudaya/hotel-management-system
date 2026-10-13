@@ -132,7 +132,7 @@ describe('RequirePermission', () => {
 
 describe('navigation per seeded role', () => {
   it.each([
-    ['Admin', ADMIN_USER, ['Users', 'Roles', 'Audit log']],
+    ['Admin', ADMIN_USER, ['Users', 'Roles', 'Rooms', 'Audit log']],
     ['General manager', MANAGER_USER, ['Users', 'Roles', 'Audit log']],
     ['Front office manager', FRONT_OFFICE_MANAGER_USER, ['Users']],
     ['Receptionist', FRONT_DESK_USER, []],

@@ -32,7 +32,12 @@ export const P = {
 export type PermissionKey = (typeof P)[keyof typeof P]
 
 /** Any of these opens the admin area (and shows its link in the header). */
-export const ADMIN_PERMISSIONS: readonly PermissionKey[] = [P.USER_VIEW, P.ROLE_VIEW, P.AUDIT_VIEW]
+export const ADMIN_PERMISSIONS: readonly PermissionKey[] = [
+  P.USER_VIEW,
+  P.ROLE_VIEW,
+  P.ROOM_MANAGE,
+  P.AUDIT_VIEW,
+]
 
 export function can(user: User | null | undefined, permission: PermissionKey): boolean {
   return user?.permissions.includes(permission) ?? false
