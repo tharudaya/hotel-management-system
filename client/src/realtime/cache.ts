@@ -16,8 +16,8 @@ export interface ApplyOptions {
 /**
  * Patch the rooms and summary caches in place of a refetch. Only changed rooms get new
  * objects, so unchanged tiles keep their props. Returns true if the events belong to a
- * different business date than the cached snapshot (midnight passed): the caller
- * should refetch instead.
+ * different business date than the cached snapshot (midnight passed), or the room
+ * setup changed: the caller should refetch instead.
  */
 export function applyEvents(
   queryClient: QueryClient,
@@ -34,8 +34,12 @@ export function applyEvents(
         businessDate: event.payload.business_date,
         room: event.payload.room,
       })
-    } else {
+    } else if (event.type === 'summary_changed') {
       latestSummary = event.payload.summary
+    } else {
+      // room_setup_changed: rooms may have appeared, vanished or moved; patching
+      // cannot express that, so refetch the snapshot.
+      needsResync = true
     }
   }
 

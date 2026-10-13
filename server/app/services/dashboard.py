@@ -94,7 +94,13 @@ async def get_dashboard_rooms(
     db: AsyncSession, today: date, room_ids: Collection[int] | None = None
 ) -> DashboardRooms:
     """Dashboard entries for all rooms, or only `room_ids` if given."""
-    room_query = select(Room, RoomType).join(Room.room_type).order_by(Room.floor, Room.number)
+    # Retired rooms are not part of the hotel any more: no tile, no counts.
+    room_query = (
+        select(Room, RoomType)
+        .join(Room.room_type)
+        .where(Room.is_active)
+        .order_by(Room.floor, Room.number)
+    )
     reservation_scope = Reservation.room_id.is_not(None)
     if room_ids is not None:
         room_query = room_query.where(Room.id.in_(room_ids))
@@ -212,7 +218,9 @@ async def get_dashboard_summary(db: AsyncSession, today: date) -> DashboardSumma
                 func.count(),
                 func.count().filter(Room.housekeeping_status == HousekeepingStatus.DIRTY),
                 func.count().filter(Room.housekeeping_status == HousekeepingStatus.OUT_OF_ORDER),
-            ).select_from(Room)
+            )
+            .select_from(Room)
+            .where(Room.is_active)
         )
     ).one()
 

@@ -65,6 +65,21 @@ describe('live dashboard', () => {
     expect(requests.rooms).toBe(2)
   })
 
+  it('refetches rooms and summary when the room setup changes', async () => {
+    const { requests } = liveDashboard()
+    const socket = await connected()
+    await waitFor(() => {
+      expect(requests.rooms).toBe(2)
+    })
+
+    socket.receive({ type: 'room_setup_changed', seq: 1, payload: { property_id: 1 } })
+
+    await waitFor(() => {
+      expect(requests.rooms).toBe(3)
+    })
+    expect(requests.summary).toBe(3)
+  })
+
   it('updates the summary from summary_changed', async () => {
     const { requests } = liveDashboard()
     const socket = await connected()

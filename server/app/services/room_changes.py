@@ -12,7 +12,7 @@ from app.realtime.bus import EventBus
 from app.realtime.events import RoomStatusChanged, SummaryChanged
 from app.schemas.dashboard import DashboardRoom
 from app.services.dashboard import get_dashboard_rooms, get_dashboard_summary
-from app.services.errors import NotFoundError, VersionConflictError
+from app.services.errors import InvalidTransitionError, NotFoundError, VersionConflictError
 
 
 async def load_room(db: AsyncSession, room_id: int) -> Room:
@@ -22,6 +22,9 @@ async def load_room(db: AsyncSession, room_id: int) -> Room:
     )
     if room is None:
         raise NotFoundError(f"Room {room_id} not found")
+    if not room.is_active:
+        # Retired rooms are out of service: no check-ins, no housekeeping changes.
+        raise InvalidTransitionError(f"Room {room.number} is retired.")
     return room
 
 

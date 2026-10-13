@@ -127,13 +127,16 @@ Implementation notes:
 ### Room setup
 - Rooms and room types belong to a property (`property_id`, required). Room numbers are unique per property (`uq_rooms_property_id_number`); room type codes and names are unique per property. A room references its type through the composite foreign key `(room_type_id, property_id)` -> `room_types(id, property_id)`, so a room can only use a room type of its own property. Tests and the seed must pass `property_id` when creating either (`get_default_property_id`).
 - Managing rooms and room types needs `room.manage` ("Add, edit and retire rooms and room types"). Only the Admin system role has it: `ADMIN_ONLY` in `core/permissions.py` keeps it out of default roles that are defined by formula (General manager, Front office manager).
-- Rules (enforced in the room setup services, next step):
+- API: `/api/admin/room-types` (GET with `include_retired`, POST, PATCH, POST `/{id}/retire|reactivate`) and `/api/admin/rooms` (GET with `floor`, `room_type_id`, `status=active|retired|all`, sorted numerically; POST; PATCH; retire/reactivate). All need `room.manage`; rules in `services/room_setup.RoomSetupService`. Room PATCH/retire/reactivate send the room `version` (409 `version_conflict` when stale). Responses carry server-computed hints (`retire_blocked`, `type_change_blocked`) with the exact message the action would return. Codes: `room_in_use`, `room_type_in_use`, `room_type_retired`, `room_number_taken`, `room_type_code_taken`, `room_type_name_taken`, `invalid_transition`.
+- Normalisation: room numbers and room type codes are trimmed and stored upper-case (so the case-sensitive unique constraints are case-insensitive in effect); room type names are compared ignoring case. `max_occupancy` is 1..12, floor 0..200. New rooms start `inspected`.
+- "Upcoming" reservations = confirmed with check-out after today, plus checked in (overstays included).
+- Every change audits (`room.created|updated|retired|reactivated`, `room_type.*`; target types `room`, `room_type`) and publishes `room_setup_changed` (broadcast with a seq); clients refetch rooms and summary. Retired rooms are excluded from dashboard reads and counts, and `room_changes.load_room` refuses them (no check-in or housekeeping changes). Reactivating a room of a retired type is refused.
+- Rules:
   - Rooms and room types are never deleted, only retired. A room is retired when `is_active` is false; `retired_at`/`retired_by` record when and by whom, and a check constraint (`ck_rooms_retired_consistent`) keeps `is_active` and `retired_at` in agreement. Room types have `is_active` only (who and when is in the audit log).
   - A room cannot be retired while a guest is checked in to it or a future reservation is assigned to it.
   - A room type cannot be retired while it has active rooms or future reservations.
   - A room's type cannot be changed while a guest is checked in to that room.
   - Every change (create, edit, retire, reactivate) is written to the audit log with `before`/`after`, like other data changes.
-- Not yet done: dashboard reads still include every room (no retired rooms exist yet); filtering retired rooms out of the dashboard belongs with the retire action.
 
 ## Conventions
 

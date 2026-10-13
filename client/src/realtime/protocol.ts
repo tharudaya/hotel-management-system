@@ -34,8 +34,16 @@ export interface SummaryChangedMessage {
   payload: { summary: DashboardSummary }
 }
 
+/** Rooms or room types were added, edited, retired or reactivated: refetch everything. */
+export interface RoomSetupChangedMessage {
+  type: 'room_setup_changed'
+  seq: number
+  payload: { property_id: number }
+}
+
 /** Broadcast events: the only messages that consume a sequence number. */
-export type RealtimeEvent = RoomStatusChangedMessage | SummaryChangedMessage
+export type RealtimeEvent =
+  RoomStatusChangedMessage | SummaryChangedMessage | RoomSetupChangedMessage
 
 export type ServerMessage = HelloMessage | PingMessage | PermissionsChangedMessage | RealtimeEvent
 
@@ -82,6 +90,11 @@ export function parseServerMessage(text: string): ServerMessage | null {
     case 'summary_changed':
       if (isRecord(payload) && isRecord(payload.summary)) {
         return data as unknown as SummaryChangedMessage
+      }
+      return null
+    case 'room_setup_changed':
+      if (isRecord(payload) && typeof payload.property_id === 'number') {
+        return { type, seq, payload: { property_id: payload.property_id } }
       }
       return null
     default:

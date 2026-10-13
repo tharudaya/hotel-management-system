@@ -7,13 +7,15 @@ Wire protocol (server -> client only; the socket never accepts writes):
     hello                on connect; payload {"user", "heartbeat_seconds"}
     room_status_changed  payload {"business_date", "room": <dashboard entry>}
     summary_changed      payload {"summary": <dashboard summary>}
+    room_setup_changed   payload {"property_id"}: rooms or room types were added,
+                         edited, retired or reactivated; refetch rooms and summary
     ping                 heartbeat; payload {}
     permissions_changed  this user's permissions (or access) changed and they still
                          have dashboard access; payload {}. Refetch /api/auth/me and
                          anything whose content depends on permissions.
 
 `seq` increases by one for every broadcast event (room_status_changed,
-summary_changed). hello, ping and permissions_changed carry the latest seq
+summary_changed, room_setup_changed). hello, ping and permissions_changed carry the latest seq
 without consuming one (permissions_changed goes only to the affected users),
 so a client that sees a jump has missed events and should refetch over REST.
 Clients connect first, then fetch the REST snapshot, then apply events.

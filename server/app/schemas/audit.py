@@ -10,7 +10,7 @@ from app.models import AuditAction, AuditEventType
 
 # What kind of record an entry is about. Authentication events are about the user who
 # signed in (or tried to).
-AuditTargetType = Literal["user", "role", "reservation", "room"]
+AuditTargetType = Literal["user", "role", "reservation", "room", "room_type"]
 
 
 class AuditQuery(BaseModel):

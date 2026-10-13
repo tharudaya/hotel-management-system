@@ -23,6 +23,14 @@ class SummaryChanged(BaseModel):
     summary: DashboardSummary
 
 
+class RoomSetupChanged(BaseModel):
+    """Rooms or room types were added, edited, retired or reactivated. Broadcast:
+    dashboards refetch the rooms and the summary (tiles may appear, vanish or move)."""
+
+    type: Literal["room_setup_changed"] = "room_setup_changed"
+    property_id: int
+
+
 class SessionEnded(BaseModel):
     """A login session was revoked (logout, or replaced by a new login).
 
@@ -51,10 +59,12 @@ class PermissionsChanged(BaseModel):
     user_ids: list[int] | None = None
 
 
-type DomainEvent = RoomStatusChanged | SummaryChanged | SessionEnded | PermissionsChanged
+type DomainEvent = (
+    RoomStatusChanged | SummaryChanged | RoomSetupChanged | SessionEnded | PermissionsChanged
+)
 
 # Events that connected dashboards receive.
-type BroadcastEvent = RoomStatusChanged | SummaryChanged
+type BroadcastEvent = RoomStatusChanged | SummaryChanged | RoomSetupChanged
 
 
 def broadcast_payload(event: BroadcastEvent) -> dict[str, Any]:

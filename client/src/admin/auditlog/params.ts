@@ -3,12 +3,19 @@ import type { AuditActionName, AuditEntry } from '../../api/types'
 import { isActionName } from '../audit'
 
 export type TargetType = NonNullable<AuditEntry['target_type']>
-export const TARGET_TYPES: readonly TargetType[] = ['user', 'role', 'reservation', 'room']
+export const TARGET_TYPES: readonly TargetType[] = [
+  'user',
+  'role',
+  'reservation',
+  'room',
+  'room_type',
+]
 export const TARGET_LABELS: Record<TargetType, string> = {
   user: 'User',
   role: 'Role',
   reservation: 'Reservation',
   room: 'Room',
+  room_type: 'Room type',
 }
 
 export const PAGE_SIZE = 50

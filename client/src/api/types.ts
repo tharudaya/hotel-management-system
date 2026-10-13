@@ -40,3 +40,5 @@ export type UserAction = keyof UserRestrictions
 export type AuditActionName = Schemas['AuditAction'] | Schemas['AuditEventType']
 export type AuditActor = Schemas['AuditActor']
 export type TokenRequest = Schemas['TokenRequest']
+export type RoomTypeOut = Schemas['RoomTypeOut']
+export type RoomOut = Schemas['RoomOut']

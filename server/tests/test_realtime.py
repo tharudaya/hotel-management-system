@@ -113,6 +113,12 @@ async def live(
 
 
 @asynccontextmanager
+async def live_db_session(app: FastAPI) -> AsyncIterator[AsyncSession]:
+    async with app.state.session_factory() as db:
+        yield db
+
+
+@asynccontextmanager
 async def connect(
     client: AsyncClient, headers: dict[str, str] | None = None
 ) -> AsyncIterator[AsyncWebSocketSession]:
@@ -183,6 +189,29 @@ async def test_check_out_over_rest_is_pushed_to_websocket(
             assert summary_event["seq"] == 2
             summary = summary_event["payload"]["summary"]
             assert (summary["in_house"], summary["departures_checked_out"]) == (0, 1)
+
+
+async def test_room_setup_changes_tell_dashboards_to_refetch(
+    test_settings: Settings, seeded: dict[str, int]
+) -> None:
+    async with live_clients(test_settings) as live_client_factory:
+        app, desk = await live(live_client_factory)  # Receptionist watching the dashboard
+        _, admin = await live_client_factory(app)
+        await login(admin, Roles.ADMIN)
+        async with live_db_session(app) as db:
+            std = await db.scalar(select(RoomType.id).where(RoomType.code == "STD"))
+
+        async with connect(desk) as ws:
+            hello = await receive(ws)
+            response = await admin.post(
+                "/api/admin/rooms", json={"number": "103", "floor": 1, "room_type_id": std}
+            )
+            assert response.status_code == 201, response.text
+
+            message = await receive(ws)
+            assert message["type"] == "room_setup_changed"
+            assert message["seq"] == hello["seq"] + 1  # a broadcast: it consumes a seq
+            assert set(message["payload"]) == {"property_id"}
 
 
 async def test_sequence_numbers_increase_across_events_and_clients(

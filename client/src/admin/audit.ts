@@ -5,7 +5,7 @@
  */
 import type { AuditActionName, AuditEntry } from '../api/types'
 
-export type ActionGroup = 'Sign-in' | 'Users' | 'Roles' | 'Front desk'
+export type ActionGroup = 'Sign-in' | 'Users' | 'Roles' | 'Room setup' | 'Front desk'
 
 export const ACTIONS: Record<AuditActionName, { label: string; group: ActionGroup }> = {
   'auth.login_succeeded': { label: 'Signed in', group: 'Sign-in' },
@@ -31,6 +31,14 @@ export const ACTIONS: Record<AuditActionName, { label: string; group: ActionGrou
   'reservation.checked_in': { label: 'Checked in', group: 'Front desk' },
   'reservation.checked_out': { label: 'Checked out', group: 'Front desk' },
   'room.housekeeping_status_changed': { label: 'Housekeeping status changed', group: 'Front desk' },
+  'room.created': { label: 'Room added', group: 'Room setup' },
+  'room.updated': { label: 'Room changed', group: 'Room setup' },
+  'room.retired': { label: 'Room retired', group: 'Room setup' },
+  'room.reactivated': { label: 'Room reactivated', group: 'Room setup' },
+  'room_type.created': { label: 'Room type added', group: 'Room setup' },
+  'room_type.updated': { label: 'Room type changed', group: 'Room setup' },
+  'room_type.retired': { label: 'Room type retired', group: 'Room setup' },
+  'room_type.reactivated': { label: 'Room type reactivated', group: 'Room setup' },
 }
 
 export const ACTION_NAMES = Object.keys(ACTIONS) as AuditActionName[]
@@ -53,6 +61,17 @@ export const FIELD_LABELS: Record<string, string> = {
   expires_at: 'Access expires',
   role_id: 'Role ID',
   role_name: 'Role',
+  number: 'Room number',
+  floor: 'Floor',
+  room_type_id: 'Room type ID',
+  room_type_code: 'Room type',
+  notes: 'Notes',
+  code: 'Code',
+  max_occupancy: 'Max guests',
+  bed_setup: 'Beds',
+  is_active: 'Active',
+  retired_at: 'Retired',
+  housekeeping_status: 'Housekeeping',
   status: 'Status',
   deactivated_at: 'Deactivated',
   sessions_revoked: 'Sessions ended',

@@ -585,6 +585,162 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/room-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Room Types
+         * @description Room types with their number of active rooms; retired ones only on request.
+         */
+        get: operations["list_room_types_api_admin_room_types_get"];
+        put?: never;
+        /** Create Room Type */
+        post: operations["create_room_type_api_admin_room_types_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/room-types/{room_type_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Room Type */
+        patch: operations["update_room_type_api_admin_room_types__room_type_id__patch"];
+        trace?: never;
+    };
+    "/api/admin/room-types/{room_type_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire Room Type
+         * @description Refused while the type has active rooms or upcoming reservations.
+         */
+        post: operations["retire_room_type_api_admin_room_types__room_type_id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/room-types/{room_type_id}/reactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reactivate Room Type */
+        post: operations["reactivate_room_type_api_admin_room_types__room_type_id__reactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/rooms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Rooms
+         * @description Rooms sorted by number; filter by floor, room type and active/retired.
+         */
+        get: operations["list_rooms_api_admin_rooms_get"];
+        put?: never;
+        /**
+         * Create Room
+         * @description New rooms start with housekeeping status inspected (Ready).
+         */
+        post: operations["create_room_api_admin_rooms_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/rooms/{room_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Room
+         * @description Send the version you saw; 409 if someone else changed the room meanwhile.
+         */
+        patch: operations["update_room_api_admin_rooms__room_id__patch"];
+        trace?: never;
+    };
+    "/api/admin/rooms/{room_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire Room
+         * @description Refused while a guest is checked in or upcoming reservations are assigned.
+         */
+        post: operations["retire_room_api_admin_rooms__room_id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/rooms/{room_id}/reactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reactivate Room */
+        post: operations["reactivate_room_api_admin_rooms__room_id__reactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -603,7 +759,7 @@ export interface components {
          * @description What changed. Stored as plain strings, so new actions need no migration.
          * @enum {string}
          */
-        AuditAction: "reservation.checked_in" | "reservation.checked_out" | "room.housekeeping_status_changed" | "user.created" | "user.updated" | "user.role_changed" | "user.deactivated" | "user.reactivated" | "user.sessions_revoked" | "user.invite_sent" | "user.password_reset_sent" | "user.activated" | "user.password_reset" | "user.expired" | "role.created" | "role.updated" | "role.deleted";
+        AuditAction: "reservation.checked_in" | "reservation.checked_out" | "room.housekeeping_status_changed" | "room.created" | "room.updated" | "room.retired" | "room.reactivated" | "room_type.created" | "room_type.updated" | "room_type.retired" | "room_type.reactivated" | "user.created" | "user.updated" | "user.role_changed" | "user.deactivated" | "user.reactivated" | "user.sessions_revoked" | "user.invite_sent" | "user.password_reset_sent" | "user.activated" | "user.password_reset" | "user.expired" | "role.created" | "role.updated" | "role.deleted";
         /** AuditActor */
         AuditActor: {
             /** Id */
@@ -631,7 +787,7 @@ export interface components {
             action: string;
             actor: components["schemas"]["AuditActor"] | null;
             /** Target Type */
-            target_type: ("user" | "role" | "reservation" | "room") | null;
+            target_type: ("user" | "role" | "reservation" | "room" | "room_type") | null;
             /** Target Id */
             target_id: string | null;
             /** Target Label */
@@ -1014,6 +1170,155 @@ export interface components {
             full_name: string;
             status: components["schemas"]["UserStatus"];
         };
+        /**
+         * RoomCreate
+         * @description New rooms start with housekeeping status inspected (Ready).
+         */
+        RoomCreate: {
+            /** Number */
+            number: string;
+            /** Floor */
+            floor: number;
+            /** Room Type Id */
+            room_type_id: number;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** RoomOut */
+        RoomOut: {
+            /** Id */
+            id: number;
+            /** Number */
+            number: string;
+            /** Floor */
+            floor: number;
+            room_type: components["schemas"]["RoomTypeRef"];
+            /** Notes */
+            notes: string | null;
+            housekeeping_status: components["schemas"]["HousekeepingStatus"];
+            /** Is Active */
+            is_active: boolean;
+            /** Retired At */
+            retired_at: string | null;
+            retired_by: components["schemas"]["UserRef"] | null;
+            /** Guest In House */
+            guest_in_house: boolean;
+            /** Upcoming Reservations */
+            upcoming_reservations: number;
+            /** Retire Blocked */
+            retire_blocked: string | null;
+            /** Type Change Blocked */
+            type_change_blocked: string | null;
+            /** Version */
+            version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** RoomTypeCreate */
+        RoomTypeCreate: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Max Occupancy */
+            max_occupancy: number;
+            /** Bed Setup */
+            bed_setup?: string | null;
+            /** Description */
+            description?: string | null;
+        };
+        /** RoomTypeOut */
+        RoomTypeOut: {
+            /** Id */
+            id: number;
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Max Occupancy */
+            max_occupancy: number;
+            /** Bed Setup */
+            bed_setup: string | null;
+            /** Description */
+            description: string | null;
+            /** Is Active */
+            is_active: boolean;
+            /** Active Room Count */
+            active_room_count: number;
+            /** Upcoming Reservations */
+            upcoming_reservations: number;
+            /** Retire Blocked */
+            retire_blocked: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** RoomTypeRef */
+        RoomTypeRef: {
+            /** Id */
+            id: number;
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Is Active */
+            is_active: boolean;
+        };
+        /**
+         * RoomTypeUpdate
+         * @description Only the fields sent change. bed_setup and description can be cleared with null.
+         */
+        RoomTypeUpdate: {
+            /** Code */
+            code?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Max Occupancy */
+            max_occupancy?: number | null;
+            /** Bed Setup */
+            bed_setup?: string | null;
+            /** Description */
+            description?: string | null;
+        };
+        /**
+         * RoomUpdate
+         * @description Only the fields sent change; notes can be cleared with null.
+         */
+        RoomUpdate: {
+            /** Version */
+            version: number;
+            /** Number */
+            number?: string | null;
+            /** Floor */
+            floor?: number | null;
+            /** Room Type Id */
+            room_type_id?: number | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /**
+         * RoomVersion
+         * @description Body of retire/reactivate: the version the client saw.
+         */
+        RoomVersion: {
+            /** Version */
+            version: number;
+        };
         /** SessionsRevoked */
         SessionsRevoked: {
             /** Revoked Sessions */
@@ -1150,6 +1455,15 @@ export interface components {
             role: components["schemas"]["RoleRef"] | null;
             /** Permissions */
             permissions: string[];
+        };
+        /** UserRef */
+        UserRef: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Full Name */
+            full_name: string;
         };
         /**
          * UserRestrictions
@@ -2742,7 +3056,7 @@ export interface operations {
                 /** @description Username of who did it (for logins: who signed in) */
                 actor?: string | null;
                 action?: components["schemas"]["AuditAction"] | components["schemas"]["AuditEventType"] | null;
-                target_type?: ("user" | "role" | "reservation" | "room") | null;
+                target_type?: ("user" | "role" | "reservation" | "room" | "room_type") | null;
                 target_id?: string | null;
                 date_from?: string | null;
                 date_to?: string | null;
@@ -2763,6 +3077,482 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuditPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_room_types_api_admin_room_types_get: {
+        parameters: {
+            query?: {
+                include_retired?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomTypeOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_room_type_api_admin_room_types_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomTypeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomTypeOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_room_type_api_admin_room_types__room_type_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                room_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomTypeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomTypeOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retire_room_type_api_admin_room_types__room_type_id__retire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                room_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomTypeOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reactivate_room_type_api_admin_room_types__room_type_id__reactivate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                room_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomTypeOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_rooms_api_admin_rooms_get: {
+        parameters: {
+            query?: {
+                floor?: number | null;
+                room_type_id?: number | null;
+                status?: "active" | "retired" | "all";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_room_api_admin_rooms_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_room_api_admin_rooms__room_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                room_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retire_room_api_admin_rooms__room_id__retire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                room_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomVersion"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reactivate_room_api_admin_rooms__room_id__reactivate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                room_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomVersion"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */

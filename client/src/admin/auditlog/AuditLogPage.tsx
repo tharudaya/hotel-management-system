@@ -24,7 +24,7 @@ import { useAuditLog } from './queries'
 import { useDocumentTitle } from '../../lib/useDocumentTitle'
 
 const DEBOUNCE_MS = 300
-const GROUPS: ActionGroup[] = ['Sign-in', 'Users', 'Roles', 'Front desk']
+const GROUPS: ActionGroup[] = ['Sign-in', 'Users', 'Roles', 'Room setup', 'Front desk']
 
 /** /admin/audit: every data change and sign-in event, newest first. */
 export function AuditLogPage() {

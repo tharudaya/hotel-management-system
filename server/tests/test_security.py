@@ -42,6 +42,16 @@ ACCESS: dict[tuple[str, str], str] = {
     ("POST", "/api/admin/users/{user_id}/reset-password"): P.USER_MANAGE,
     ("GET", "/api/admin/users/roles"): P.USER_VIEW,
     ("GET", "/api/admin/audit"): P.AUDIT_VIEW,
+    ("GET", "/api/admin/room-types"): P.ROOM_MANAGE,
+    ("POST", "/api/admin/room-types"): P.ROOM_MANAGE,
+    ("PATCH", "/api/admin/room-types/{room_type_id}"): P.ROOM_MANAGE,
+    ("POST", "/api/admin/room-types/{room_type_id}/retire"): P.ROOM_MANAGE,
+    ("POST", "/api/admin/room-types/{room_type_id}/reactivate"): P.ROOM_MANAGE,
+    ("GET", "/api/admin/rooms"): P.ROOM_MANAGE,
+    ("POST", "/api/admin/rooms"): P.ROOM_MANAGE,
+    ("PATCH", "/api/admin/rooms/{room_id}"): P.ROOM_MANAGE,
+    ("POST", "/api/admin/rooms/{room_id}/retire"): P.ROOM_MANAGE,
+    ("POST", "/api/admin/rooms/{room_id}/reactivate"): P.ROOM_MANAGE,
     ("GET", "/api/admin/roles"): P.ROLE_VIEW,
     ("GET", "/api/admin/roles/permissions"): P.ROLE_VIEW,
     ("GET", "/api/admin/roles/{role_id}"): P.ROLE_VIEW,
@@ -76,6 +86,7 @@ def concrete(path: str) -> str:
         .replace("{room_id}", "1")
         .replace("{user_id}", "999999")
         .replace("{role_id}", "999999")
+        .replace("{room_type_id}", "999999")
         .replace("{token}", "x" * 43)
     )
 

@@ -326,7 +326,7 @@ async def test_there_are_no_write_endpoints(client: AsyncClient, login_as: Login
 
 def test_action_names_follow_one_pattern() -> None:
     names = [a.value for a in AuditAction] + [e.value for e in AuditEventType]
-    pattern = re.compile(r"^[a-z]+\.[a-z]+(_[a-z]+)*$")  # area.past_tense_event
+    pattern = re.compile(r"^[a-z]+(_[a-z]+)*\.[a-z]+(_[a-z]+)*$")  # area.past_tense_event
     assert [n for n in names if not pattern.match(n)] == []
     assert len(names) == len(set(names))
 

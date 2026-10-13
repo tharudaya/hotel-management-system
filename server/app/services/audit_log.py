@@ -32,7 +32,17 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
-from app.models import AuditAction, AuditEvent, AuditEventType, AuditLog, Property, Role, Room, User
+from app.models import (
+    AuditAction,
+    AuditEvent,
+    AuditEventType,
+    AuditLog,
+    Property,
+    Role,
+    Room,
+    RoomType,
+    User,
+)
 from app.schemas.audit import AuditActor, AuditEntry, AuditPage, AuditQuery
 from app.services.errors import InvalidInputError
 
@@ -224,6 +234,12 @@ async def _target_labels(db: AsyncSession, rows: Sequence[Any]) -> dict[tuple[st
         ("user", select(User.id, User.full_name).where(User.id.in_(_ids(rows, "user")))),
         ("role", select(Role.id, Role.name).where(Role.id.in_(_ids(rows, "role")))),
         ("room", select(Room.id, Room.number).where(Room.id.in_(_ids(rows, "room")))),
+        (
+            "room_type",
+            select(RoomType.id, RoomType.code + " " + RoomType.name).where(
+                RoomType.id.in_(_ids(rows, "room_type"))
+            ),
+        ),
     ]
     for target_type, stmt in lookups:
         if not _ids(rows, target_type):
