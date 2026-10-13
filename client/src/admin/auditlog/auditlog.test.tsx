@@ -258,6 +258,45 @@ describe('audit log filters', () => {
     expect(router.state.location.search).toBe('')
   })
 
+  it('offers the room setup actions and the room type target', async () => {
+    const fetchMock = api({
+      [key()]: () => [200, page(ALL)],
+      [key({ action: 'room.retired' })]: () => [200, page([])],
+      [key({ action: 'room.retired', targetType: 'room_type' })]: () => [200, page([])],
+    })
+    const router = renderApp('/admin/audit')
+    await screen.findByRole('table')
+    const action = screen.getByRole('combobox', { name: 'Action' })
+
+    const group = within(action).getByRole('group', { name: 'Room setup' })
+    expect(
+      within(group)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual([
+      'Room added',
+      'Room changed',
+      'Room retired',
+      'Room reactivated',
+      'Room type added',
+      'Room type changed',
+      'Room type retired',
+      'Room type reactivated',
+    ])
+    const user = userEvent.setup()
+    await user.selectOptions(action, 'Room retired')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Target type' }), 'Room type')
+
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?action=room.retired&target_type=room_type')
+    })
+    await waitFor(() => {
+      expect(auditRequests(fetchMock)).toContain(
+        '/api/admin/audit?limit=50&action=room.retired&target_type=room_type',
+      )
+    })
+  })
+
   it('ignores unknown values in the URL', async () => {
     const fetchMock = api({ [key()]: () => [200, page(ALL)] })
     renderApp('/admin/audit?action=user.exploded&target_type=guest&from=yesterday')

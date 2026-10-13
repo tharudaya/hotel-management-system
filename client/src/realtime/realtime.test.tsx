@@ -80,6 +80,37 @@ describe('live dashboard', () => {
     expect(requests.summary).toBe(3)
   })
 
+  it('drops a retired room type from the filter after a room setup change', async () => {
+    let roomsCalls = 0
+    mockApi({
+      'GET /api/auth/me': () => [200, FRONT_DESK_USER],
+      'GET /api/hotel': () => [200, HOTEL],
+      'GET /api/dashboard/rooms': () => {
+        roomsCalls += 1
+        // After the admin retired every Deluxe room (and the type), only these remain.
+        const rooms = roomsCalls <= 2 ? ROOMS : ROOMS.filter((r) => r.room_type !== 'DLX')
+        return [200, { business_date: BUSINESS_DATE, rooms }]
+      },
+      'GET /api/dashboard/summary': () => [200, SUMMARY],
+    })
+    renderApp('/')
+    const socket = await connected()
+    const typeFilter = screen.getByRole('combobox', { name: 'Room type' })
+    await waitFor(() => {
+      expect(roomsCalls).toBe(2)
+    })
+    expect(within(typeFilter).getByRole('option', { name: 'Deluxe King' })).toBeInTheDocument()
+
+    socket.receive({ type: 'room_setup_changed', seq: 1, payload: { property_id: 1 } })
+
+    await waitFor(() => {
+      expect(
+        within(typeFilter).queryByRole('option', { name: 'Deluxe King' }),
+      ).not.toBeInTheDocument()
+    })
+    expect(within(typeFilter).getByRole('option', { name: 'Standard Queen' })).toBeInTheDocument()
+  })
+
   it('updates the summary from summary_changed', async () => {
     const { requests } = liveDashboard()
     const socket = await connected()
@@ -195,6 +226,9 @@ describe('live dashboard', () => {
     screen.getByRole('button', { name: 'Sign out' }).click()
 
     await screen.findByRole('heading', { name: 'Sign in' })
-    expect(socket.closed?.code).toBe(1000)
+    // Closed by the layout's cleanup, which can land just after the login page renders.
+    await waitFor(() => {
+      expect(socket.closed?.code).toBe(1000)
+    })
   })
 })

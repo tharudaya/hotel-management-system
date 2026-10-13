@@ -30,6 +30,9 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: 'jsdom',
+      // Each jsdom worker takes a few hundred MB; one per CPU core can push a busy dev
+      // machine into swapping and time-outs. Override with --maxWorkers if needed.
+      maxWorkers: 4,
       setupFiles: ['./src/test/setup.ts'],
       css: false,
       // Needs running servers: `npm run test:e2e` (vitest.e2e.config.ts).

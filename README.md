@@ -87,6 +87,31 @@ uv run python -m app.scripts.create_admin --username admin --full-name "Ada Admi
 It refuses while the property has an active admin (create further admins in the app). It
 also works as a recovery path when every admin is deactivated, expired or never activated.
 
+## Setting up rooms
+
+Rooms and room types are managed under **Admin > Rooms**, which needs the `room.manage`
+permission (only the Admin role has it by default).
+
+1. **Room types** tab: add the kinds of rooms the hotel sells. Each has a short code
+   (e.g. `DLX`, stored in capitals and unique), a name, the maximum number of guests
+   (1–12), an optional bed setup ("1 king") and a description.
+2. **Rooms** tab: add each room with its number (e.g. `304` or `PH1`), floor and room type.
+   Only active room types can be chosen. New rooms start *Ready* (inspected) and appear on
+   the front desk dashboard at once, for everyone, without reloading.
+3. Edit a room's number, floor, type or notes at any time, except that its type cannot
+   change while a guest is checked in. If someone else changed the room meanwhile, you are
+   told and the list reloads.
+
+Nothing is ever deleted; rooms and room types are **retired** instead, and can be
+reactivated. A retired room leaves the dashboard and all counts, and cannot be checked in
+to. The app explains when something cannot be retired:
+
+- a room with a guest checked in, or with upcoming reservations assigned to it;
+- a room type that still has active rooms, or upcoming reservations booked as that type.
+
+A room of a retired type cannot be reactivated until the type is. Every change is in the
+audit log (**Admin > Audit log**, filter *Room setup*).
+
 ## Users and permissions
 
 **Model.** A *permission* is a key such as `reservation.check_in`, defined in code
