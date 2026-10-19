@@ -93,6 +93,7 @@ export const SUMMARY: DashboardSummary = {
   dirty: 3,
   out_of_order: 1,
   occupancy_percent: 80,
+  arrivals: [],
 }
 
 export const HOTEL = {

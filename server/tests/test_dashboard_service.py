@@ -106,3 +106,19 @@ def test_guest_in_house_wins_over_out_of_order() -> None:
 
     assert result.status is OccupancyStatus.OCCUPIED
     assert result.stay == guest
+
+
+def test_late_arrival_is_still_arriving_with_the_nights_left() -> None:
+    # Due yesterday, not checked in or marked as a no-show yet.
+    late = stay(-1, 3)
+
+    result = derive_occupancy(HK.INSPECTED, None, late, TODAY)
+
+    assert result.status is OccupancyStatus.ARRIVING_TODAY
+    assert result.stay == late
+    assert result.nights_remaining == 3
+    assert result.has_arrival_today
+
+
+def test_arrival_whose_stay_is_over_leaves_room_vacant() -> None:
+    assert derive_occupancy(HK.INSPECTED, None, stay(-3, 0), TODAY).status is OccupancyStatus.VACANT

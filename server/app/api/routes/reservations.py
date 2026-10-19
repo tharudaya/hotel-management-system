@@ -28,6 +28,9 @@ from app.schemas.reservations import (
     ReservationNoShow,
     ReservationUpdate,
     ReservationView,
+    RoomAssignment,
+    RoomUnassignment,
+    WalkInCreate,
 )
 from app.services import reservations as reservation_service
 from app.services.availability import AvailabilityService
@@ -39,6 +42,9 @@ ReservationViewer = Annotated[User, Depends(require_permission(P.RESERVATION_VIE
 BookingUser = Annotated[User, Depends(require_permission(P.RESERVATION_CREATE))]
 ModifyUser = Annotated[User, Depends(require_permission(P.RESERVATION_MODIFY))]
 CancelUser = Annotated[User, Depends(require_permission(P.RESERVATION_CANCEL))]
+WalkInUser = Annotated[
+    User, Depends(require_permission(P.RESERVATION_CREATE, P.RESERVATION_CHECK_IN))
+]
 CheckInUser = Annotated[User, Depends(require_permission(P.RESERVATION_CHECK_IN))]
 CheckOutUser = Annotated[User, Depends(require_permission(P.RESERVATION_CHECK_OUT))]
 ReservationId = Annotated[int, Path(gt=0)]
@@ -86,7 +92,46 @@ def _cancel_service(
     return _change_service(user, db, bus, property_id, client, today, permissions)
 
 
+def _check_in_service(
+    user: CheckInUser,
+    db: SessionDep,
+    bus: EventBusDep,
+    property_id: CurrentPropertyId,
+    client: ClientInfoDep,
+    today: HotelTodayDep,
+    permissions: CurrentPermissions,
+) -> ReservationService:
+    return _change_service(user, db, bus, property_id, client, today, permissions)
+
+
+def _check_out_service(
+    user: CheckOutUser,
+    db: SessionDep,
+    bus: EventBusDep,
+    property_id: CurrentPropertyId,
+    client: ClientInfoDep,
+    today: HotelTodayDep,
+    permissions: CurrentPermissions,
+) -> ReservationService:
+    return _change_service(user, db, bus, property_id, client, today, permissions)
+
+
+def _walk_in_service(
+    user: WalkInUser,
+    db: SessionDep,
+    bus: EventBusDep,
+    property_id: CurrentPropertyId,
+    client: ClientInfoDep,
+    today: HotelTodayDep,
+    permissions: CurrentPermissions,
+) -> ReservationService:
+    return _change_service(user, db, bus, property_id, client, today, permissions)
+
+
 ChangeService = Annotated[ReservationService, Depends(_modify_service)]
+CheckInService = Annotated[ReservationService, Depends(_check_in_service)]
+CheckOutService = Annotated[ReservationService, Depends(_check_out_service)]
+WalkInService = Annotated[ReservationService, Depends(_walk_in_service)]
 CancelService = Annotated[ReservationService, Depends(_cancel_service)]
 CHANGE_ERRORS: dict[int | str, dict[str, object]] = {
     status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
@@ -132,6 +177,30 @@ async def create_reservation(
     detail, replayed = await ReservationService(
         db, bus, user, property_id, client, today, permissions
     ).create(body, idempotency_key)
+    if replayed:
+        response.headers["Idempotent-Replayed"] = "true"
+    return detail
+
+
+@router.post(
+    "/walk-in",
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+        status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
+        status.HTTP_409_CONFLICT: {"model": NoAvailabilityResponse},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": ErrorResponse},
+    },
+)
+async def walk_in(
+    body: WalkInCreate,
+    idempotency_key: IdempotencyKeyHeader,
+    response: Response,
+    service: WalkInService,
+) -> ReservationDetail:
+    """Book from today (source walk_in) and check in to `room_id`, in one transaction.
+    Needs reservation.create and reservation.check_in. Idempotent like POST /."""
+    detail, replayed = await service.walk_in(body, idempotency_key)
     if replayed:
         response.headers["Idempotent-Replayed"] = "true"
     return detail
@@ -228,48 +297,33 @@ async def mark_no_show(
 
 @router.post("/{reservation_id}/check-in", responses=ERRORS)
 async def check_in(
-    reservation_id: ReservationId,
-    body: CheckInRequest,
-    db: SessionDep,
-    bus: EventBusDep,
-    user: CheckInUser,
-    property_id: CurrentPropertyId,
-    client: ClientInfoDep,
-    today: HotelTodayDep,
+    reservation_id: ReservationId, body: CheckInRequest, service: CheckInService
 ) -> DashboardRoom:
-    """Check the guest in to `room_id`. Returns the room's updated dashboard entry."""
-    return await reservation_service.check_in(
-        db,
-        bus,
-        reservation_id=reservation_id,
-        room_id=body.room_id,
-        expected_room_version=body.room_version,
-        actor=user,
-        property_id=property_id,
-        client=client,
-        today=today,
-    )
+    """Check the guest in to `room_id` (ready, vacant, of the reserved type), from the
+    arrival day on. Returns the room's updated dashboard entry."""
+    return await service.check_in(reservation_id, body.room_id, body.room_version)
 
 
 @router.post("/{reservation_id}/check-out", responses=ERRORS)
 async def check_out(
-    reservation_id: ReservationId,
-    body: CheckOutRequest,
-    db: SessionDep,
-    bus: EventBusDep,
-    user: CheckOutUser,
-    property_id: CurrentPropertyId,
-    client: ClientInfoDep,
-    today: HotelTodayDep,
+    reservation_id: ReservationId, body: CheckOutRequest, service: CheckOutService
 ) -> DashboardRoom:
-    """Check the guest out; the room becomes dirty. Returns its updated dashboard entry."""
-    return await reservation_service.check_out(
-        db,
-        bus,
-        reservation_id=reservation_id,
-        expected_room_version=body.room_version,
-        actor=user,
-        property_id=property_id,
-        client=client,
-        today=today,
-    )
+    """Check the guest out; the room becomes dirty. Leaving early shortens the stay to
+    today and drops the unused nights. Returns the room's updated dashboard entry."""
+    return await service.check_out(reservation_id, body.room_version)
+
+
+@router.post("/{reservation_id}/assign-room", responses=CHANGE_ERRORS)
+async def assign_room(
+    reservation_id: ReservationId, body: RoomAssignment, service: CheckInService
+) -> ReservationView:
+    """Give a confirmed booking a room before arrival (active, of the reserved type, free
+    on its nights), or move it to another one."""
+    return await service.assign_room(reservation_id, body.version, body.room_id)
+
+
+@router.post("/{reservation_id}/unassign-room", responses=CHANGE_ERRORS)
+async def unassign_room(
+    reservation_id: ReservationId, body: RoomUnassignment, service: CheckInService
+) -> ReservationView:
+    return await service.unassign_room(reservation_id, body.version)

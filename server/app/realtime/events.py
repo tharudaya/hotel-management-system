@@ -40,7 +40,16 @@ class ReservationChanged(BaseModel):
     type: Literal["reservation_changed"] = "reservation_changed"
     property_id: int
     reservation_id: int
-    change: Literal["created", "updated", "cancelled", "no_show"]
+    change: Literal[
+        "created",
+        "updated",
+        "cancelled",
+        "no_show",
+        "room_assigned",
+        "room_unassigned",
+        "checked_in",
+        "checked_out",
+    ]
     status: ReservationStatus
     room_type_id: int
     check_in_date: date

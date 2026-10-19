@@ -3,7 +3,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from app.models import HousekeepingStatus
+from app.models import HousekeepingStatus, ReservationStatus
 
 
 class OccupancyStatus(StrEnum):
@@ -41,9 +41,34 @@ class DashboardRooms(BaseModel):
     rooms: list[DashboardRoom]
 
 
+class ArrivalEntry(BaseModel):
+    """A booking arriving today (or late: due earlier, not here yet) or checked in today.
+    Shown to every dashboard user: no contact details."""
+
+    reservation_id: int
+    confirmation_code: str
+    guest_name: str
+    status: ReservationStatus
+    check_in_date: date
+    check_out_date: date
+    nights: int
+    adults: int
+    children: int
+    room_type_id: int
+    room_type: str
+    room_type_name: str
+    room_id: int | None
+    room_number: str | None
+    is_vip: bool
+    has_notes: bool
+    # The reservation version, for assigning a room.
+    version: int
+
+
 class DashboardSummary(BaseModel):
     business_date: date
-    # Reservations due in today (confirmed + already checked in), and how many are in.
+    # Reservations due in today (confirmed, checked in, or come and gone), and how many
+    # have arrived.
     arrivals_today: int
     arrivals_checked_in: int
     # Guests due out today (including overstays), and how many have left.
@@ -52,9 +77,11 @@ class DashboardSummary(BaseModel):
     # Rooms with a guest in house right now, and the number of guests in them.
     in_house: int
     in_house_guests: int
-    # Sellable rooms (not out of order) minus rooms sold for tonight.
+    # Rooms free tonight, per room type, summed (as the availability service counts).
     available_tonight: int
     dirty: int
     out_of_order: int
     # Rooms sold tonight / sellable rooms, as a percentage (1 decimal).
     occupancy_percent: float
+    # Today's arrivals, waiting for a room first (see ArrivalEntry).
+    arrivals: list[ArrivalEntry]

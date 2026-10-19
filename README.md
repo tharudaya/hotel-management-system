@@ -260,8 +260,9 @@ development).
    needs a built client served as static files, a non-reload server image, TLS, a
    Content-Security-Policy, and `--forwarded-allow-ips` so client IPs (used for login
    throttling and audit) are correct behind a proxy.
-3. **Unassigned arrivals can't be checked in from the dashboard.** They are counted in the
-   summary but have no tile; a "today's arrivals" list with room assignment is needed.
+3. **Unassigned arrivals can't be checked in from the dashboard yet.** The API can assign
+   rooms (`/assign-room`) and the summary lists today's arrivals (unassigned first); the
+   screen for it is the next step.
 4. **No real email backend yet** (only `console` for development and `disabled`). Until
    one is added, admins share invite links in person, password resets by email fail with
    a clear error, and forgot-password sends nothing.
@@ -271,7 +272,8 @@ development).
    by the sweep, but rows stay. Audit rows are append-only by design; a retention policy
    (e.g. archiving `audit_events`, which holds IP addresses) needs a deliberate,
    privileged procedure that drops the trigger.
-7. **Early check-out keeps the booked dates**, so it is not counted in "departures today".
+7. **Overstays are not billed for the extra nights.** Early check-out shortens the stay
+   and its total; a guest who stays past the booked date keeps the booked dates and price.
 8. **The client copies the housekeeping transition table** to decide which buttons to show;
    keep it in sync with the server (or serve it from an endpoint).
 9. **`npm run generate:api` needs the server running**; a schema export script would let CI

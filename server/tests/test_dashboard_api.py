@@ -197,7 +197,9 @@ async def test_summary_counts(
     response = await client.get(SUMMARY)
 
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    arrivals = body.pop("arrivals")
+    assert body == {
         "business_date": "2026-03-10",
         # 104, 105 (Comer), 202 (already in), 203, unassigned; cancelled excluded
         "arrivals_today": 5,
@@ -208,13 +210,30 @@ async def test_summary_counts(
         # 102, 103, 105, 107, 202
         "in_house": 5,
         "in_house_guests": 3 + 1 + 1 + 1 + 1,
-        # 11 rooms - 2 out of order = 9 sellable; sold tonight: 102, 202 staying
-        # + 104, 105, 203, unassigned arriving = 6
-        "available_tonight": 3,
+        # 11 rooms - 2 out of order (nobody in them) = 9 sellable. Sold tonight, as the
+        # availability service counts: 102, 202 staying, 107 overstaying (103 and 105
+        # are due out today) + 104, 105, 203, unassigned arriving = 7
+        "available_tonight": 2,
         "dirty": 3,
         "out_of_order": 2,
-        "occupancy_percent": 66.7,
+        "occupancy_percent": 77.8,
     }
+    # Waiting for a room first, then with a room, then already in; by name.
+    assert [(a["guest_name"], a["room_number"], a["status"]) for a in arrivals] == [
+        ("Unassigned Guest", None, "confirmed"),
+        ("Arnie Guest", "104", "confirmed"),
+        ("Blocked Guest", "203", "confirmed"),
+        ("Comer Guest", "105", "confirmed"),
+        ("Early Guest", "202", "checked_in"),
+    ]
+    arnie = arrivals[1]
+    assert {k: arnie[k] for k in ("nights", "room_type", "adults", "version")} == {
+        "nights": 2,
+        "room_type": "STD",
+        "adults": 1,
+        "version": 1,
+    }
+    assert "email" not in arnie and "phone" not in arnie
 
 
 async def test_summary_empty_hotel(
@@ -277,7 +296,8 @@ async def test_summary_query_count_is_constant(
 ) -> None:
     await get_dashboard_summary(db_session, TODAY)
 
-    assert len(statements) == 2
+    # Property, reservation counts, room counts, availability tonight, arrivals list.
+    assert len(statements) == 5
 
 
 # --- permissions -----------------------------------------------------------------

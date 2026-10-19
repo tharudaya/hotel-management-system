@@ -17,14 +17,20 @@ from app.models import (
     AuditLog,
     HousekeepingStatus,
     Reservation,
+    ReservationNight,
     ReservationStatus,
     Room,
     RoomType,
 )
-from app.realtime.events import DomainEvent, RoomStatusChanged, SummaryChanged
+from app.realtime.events import (
+    DomainEvent,
+    ReservationChanged,
+    RoomStatusChanged,
+    SummaryChanged,
+)
 from app.services.permissions import get_default_property_id
 from tests.conftest import LoginAs, Roles
-from tests.factories import new_reservation
+from tests.factories import DEFAULT_RATE_MINOR, new_reservation
 
 TODAY: date = date(2026, 3, 10)
 HK = HousekeepingStatus
@@ -210,7 +216,9 @@ async def test_check_in_to_pre_assigned_room(
         "confirmation_code": arrival.confirmation_code,
     }
 
-    room_evt, summary_evt = published
+    reservation_evt, room_evt, summary_evt = published
+    assert isinstance(reservation_evt, ReservationChanged)
+    assert (reservation_evt.change, reservation_evt.status) == ("checked_in", "checked_in")
     assert isinstance(room_evt, RoomStatusChanged)
     assert room_evt.business_date == TODAY
     assert room_evt.room.model_dump(mode="json") == entry
@@ -380,6 +388,7 @@ async def test_check_in_concurrent_update_conflict(
 ) -> None:
     await login_as(Roles.RECEPTIONIST)
     arrival, room = hotel.reservations["arrival"], hotel.rooms["101"]
+    code = arrival.confirmation_code  # read now: the failed commit expires it
     concurrent_writer(room)
 
     response = await client.post(
@@ -388,7 +397,9 @@ async def test_check_in_concurrent_update_conflict(
 
     assert response.status_code == 409
     assert response.json() == {
-        "detail": "Room 101 was changed by someone else. Reload and try again.",
+        "detail": (
+            f"Reservation {code} or room 101 was changed by someone else. Reload and try again."
+        ),
         "code": "version_conflict",
     }
     # The whole transaction was rolled back: reservation, room and audit row.
@@ -423,9 +434,28 @@ async def test_check_out_makes_room_dirty(
 
     await refresh(db_session, guest)
     assert guest.status == RS.CHECKED_OUT
+    assert guest.checked_out_at is not None
+    # Due out tomorrow but left today: the stay ends today and the unused night goes.
+    assert (guest.check_out_date, guest.total_minor) == (TODAY, 2 * DEFAULT_RATE_MINOR)
+    nights = (
+        await db_session.scalars(
+            select(ReservationNight.night_date).where(ReservationNight.reservation_id == guest.id)
+        )
+    ).all()
+    assert sorted(nights) == [TODAY - timedelta(days=2), TODAY - timedelta(days=1)]
     [audit] = await audit_rows(db_session, AuditAction.RESERVATION_CHECKED_OUT)
     assert audit.actor_user_id == user.id
-    assert audit.before == {"status": "checked_in", "housekeeping_status": "clean"}
+    assert audit.before == {
+        "status": "checked_in",
+        "housekeeping_status": "clean",
+        "check_out_date": "2026-03-11",
+        "total_minor": 3 * DEFAULT_RATE_MINOR,
+    }
+    assert audit.after is not None
+    assert (audit.after["check_out_date"], audit.after["total_minor"]) == (
+        "2026-03-10",
+        2 * DEFAULT_RATE_MINOR,
+    )
     assert audit.after is not None
     assert {k: audit.after[k] for k in ("status", "housekeeping_status")} == {
         "status": "checked_out",

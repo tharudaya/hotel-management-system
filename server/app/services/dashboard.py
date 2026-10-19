@@ -1,14 +1,20 @@
 """Read side of the front desk dashboard: per-room status and daily summary.
 
-Each read is a fixed number of queries regardless of the number of rooms
-(rooms: 2, summary: 2), so there is no N+1.
+Each read is a fixed number of queries regardless of the number of rooms or
+reservations (rooms: 2; summary: 4, plus 1 to find the property when it is not given),
+so there is no N+1.
+
+The summary's "tonight" figures are the availability service's (services/availability):
+rooms sold tonight are confirmed stays covering tonight (late arrivals included) and
+guests in house except those due out today (overstays count); sellable rooms are active
+rooms minus out-of-order ones without a guest in them.
 """
 
 from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -20,11 +26,14 @@ from app.models import (
     RoomType,
 )
 from app.schemas.dashboard import (
+    ArrivalEntry,
     DashboardRoom,
     DashboardRooms,
     DashboardSummary,
     OccupancyStatus,
 )
+from app.services.availability import AvailabilityService
+from app.services.permissions import get_default_property_id
 
 
 @dataclass(frozen=True)
@@ -59,9 +68,15 @@ def derive_occupancy(
     arrival: a confirmed reservation assigned to the room, if any.
 
     Precedence: a guest in house always wins (even in an out-of-order room, so
-    nobody is overlooked), then out of order, then today's arrival, then vacant.
+    nobody is overlooked), then out of order, then the arrival, then vacant. A late
+    arrival (due on an earlier day, not checked in or marked as a no-show yet) is still
+    an arrival while its stay lasts.
     """
-    arriving = arrival if arrival is not None and arrival.check_in_date == today else None
+    arriving = (
+        arrival
+        if arrival is not None and arrival.check_in_date <= today < arrival.check_out_date
+        else None
+    )
     has_arrival_today = arriving is not None
 
     if in_house is not None:
@@ -73,7 +88,7 @@ def derive_occupancy(
         return RoomOccupancy(OccupancyStatus.OUT_OF_ORDER, None, None, has_arrival_today)
 
     if arriving is not None:
-        nights = (arriving.check_out_date - arriving.check_in_date).days
+        nights = (arriving.check_out_date - max(arriving.check_in_date, today)).days
         return RoomOccupancy(OccupancyStatus.ARRIVING_TODAY, arriving, nights, True)
 
     return RoomOccupancy(OccupancyStatus.VACANT, None, None, False)
@@ -109,8 +124,8 @@ async def get_dashboard_rooms(
     # objects this session already loaded (e.g. right after a mutation).
     rooms = (await db.execute(room_query.execution_options(populate_existing=True))).all()
 
-    # Every reservation that can affect a room's status today, in one query.
-    # The DB guarantees at most one checked-in and one confirmed-for-today per room.
+    # Every reservation that can affect a room's status today, in one query. The DB
+    # guarantees at most one checked-in and one confirmed covering today per room.
     relevant = (
         await db.execute(
             select(Reservation, Guest)
@@ -121,7 +136,8 @@ async def get_dashboard_rooms(
                     Reservation.status == ReservationStatus.CHECKED_IN,
                     and_(
                         Reservation.status == ReservationStatus.CONFIRMED,
-                        Reservation.check_in_date == today,
+                        Reservation.check_in_date <= today,
+                        Reservation.check_out_date > today,
                     ),
                 ),
             )
@@ -169,37 +185,46 @@ async def get_dashboard_room(db: AsyncSession, today: date, room_id: int) -> Das
     return entry
 
 
-async def get_dashboard_summary(db: AsyncSession, today: date) -> DashboardSummary:
+async def get_dashboard_summary(
+    db: AsyncSession, today: date, property_id: int | None = None
+) -> DashboardSummary:
+    if property_id is None:
+        property_id = await get_default_property_id(db)
     status = Reservation.status
     in_house = status == ReservationStatus.CHECKED_IN
     checked_out = status == ReservationStatus.CHECKED_OUT
     confirmed = status == ReservationStatus.CONFIRMED
     arrives_today = Reservation.check_in_date == today
     leaves_today = Reservation.check_out_date == today
+    covers_tonight = and_(Reservation.check_in_date <= today, Reservation.check_out_date > today)
     # Overstays (due out on an earlier day, still in house) are still due out today.
     due_out = and_(in_house, Reservation.check_out_date <= today)
+    # As the availability service counts: guests due out today free their room tonight.
+    holds_tonight = or_(
+        and_(confirmed, covers_tonight), and_(in_house, Reservation.check_out_date != today)
+    )
 
+    # A guest who arrived and left today keeps one night (the stay ends tomorrow), but
+    # is today's arrival and departure all the same.
+    left_today = and_(checked_out, or_(leaves_today, arrives_today))
     counts = (
         await db.execute(
             select(
-                func.count().filter(arrives_today, or_(confirmed, in_house)),
-                func.count().filter(arrives_today, in_house),
-                func.count().filter(or_(due_out, and_(checked_out, leaves_today))),
-                func.count().filter(checked_out, leaves_today),
+                func.count().filter(arrives_today, or_(confirmed, in_house, checked_out)),
+                func.count().filter(arrives_today, or_(in_house, checked_out)),
+                func.count().filter(or_(due_out, left_today)),
+                func.count().filter(left_today),
                 func.count().filter(in_house),
                 func.coalesce(
                     func.sum(Reservation.adults + Reservation.children).filter(in_house), 0
                 ),
-                # Sold for tonight: staying past today, or arriving today (assigned or not).
-                func.count().filter(
-                    or_(
-                        and_(in_house, Reservation.check_out_date > today),
-                        and_(confirmed, arrives_today),
-                    )
-                ),
+                func.count().filter(holds_tonight),
             )
             .select_from(Reservation)
-            .where(or_(in_house, arrives_today, leaves_today))
+            .where(
+                Reservation.property_id == property_id,
+                or_(in_house, arrives_today, leaves_today, and_(confirmed, covers_tonight)),
+            )
         )
     ).one()
     (
@@ -212,20 +237,25 @@ async def get_dashboard_summary(db: AsyncSession, today: date) -> DashboardSumma
         sold_tonight,
     ) = counts
 
-    total_rooms, dirty, out_of_order = (
+    guest_in_room = select(Reservation.id).where(Reservation.room_id == Room.id, in_house).exists()
+    out_of_order_room = Room.housekeeping_status == HousekeepingStatus.OUT_OF_ORDER
+    total_rooms, dirty, out_of_order, out_of_order_empty = (
         await db.execute(
             select(
                 func.count(),
                 func.count().filter(Room.housekeeping_status == HousekeepingStatus.DIRTY),
-                func.count().filter(Room.housekeeping_status == HousekeepingStatus.OUT_OF_ORDER),
+                func.count().filter(out_of_order_room),
+                func.count().filter(out_of_order_room, ~guest_in_room),
             )
             .select_from(Room)
-            .where(Room.is_active)
+            .where(Room.property_id == property_id, Room.is_active)
         )
     ).one()
 
-    sellable = total_rooms - out_of_order
-    occupancy = round(sold_tonight * 100 / sellable, 1) if sellable else 0.0
+    free_tonight = await AvailabilityService(db, today).free_rooms_by_night(property_id, [today])
+    available_tonight = sum(max(by_night.get(today, 0), 0) for by_night in free_tonight.values())
+    sellable = total_rooms - out_of_order_empty
+    occupancy = round(min(sold_tonight, sellable) * 100 / sellable, 1) if sellable else 0.0
 
     return DashboardSummary(
         business_date=today,
@@ -235,8 +265,71 @@ async def get_dashboard_summary(db: AsyncSession, today: date) -> DashboardSumma
         departures_checked_out=departures_out,
         in_house=in_house_rooms,
         in_house_guests=in_house_guests,
-        available_tonight=max(sellable - sold_tonight, 0),
+        available_tonight=available_tonight,
         dirty=dirty,
         out_of_order=out_of_order,
         occupancy_percent=occupancy,
+        arrivals=await _arrivals(db, today, property_id),
     )
+
+
+async def _arrivals(db: AsyncSession, today: date, property_id: int) -> list[ArrivalEntry]:
+    """Today's arrivals for the front desk: confirmed stays covering tonight (late
+    arrivals included) and guests who checked in today. Bookings still waiting for a
+    room come first, then those with a room, then those already in; by guest name."""
+    confirmed = Reservation.status == ReservationStatus.CONFIRMED
+    rows = (
+        await db.execute(
+            select(Reservation, Guest, RoomType, Room)
+            .join(Reservation.guest)
+            .join(Reservation.room_type)
+            .outerjoin(Reservation.room)
+            .where(
+                Reservation.property_id == property_id,
+                or_(
+                    and_(
+                        confirmed,
+                        Reservation.check_in_date <= today,
+                        Reservation.check_out_date > today,
+                    ),
+                    and_(
+                        Reservation.status == ReservationStatus.CHECKED_IN,
+                        Reservation.check_in_date == today,
+                    ),
+                ),
+            )
+            .order_by(
+                case(
+                    (and_(confirmed, Reservation.room_id.is_(None)), 0),
+                    (confirmed, 1),
+                    else_=2,
+                ),
+                Guest.last_name,
+                Guest.first_name,
+                Reservation.id,
+            )
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    return [
+        ArrivalEntry(
+            reservation_id=reservation.id,
+            confirmation_code=reservation.confirmation_code,
+            guest_name=f"{guest.first_name} {guest.last_name}",
+            status=reservation.status,
+            check_in_date=reservation.check_in_date,
+            check_out_date=reservation.check_out_date,
+            nights=(reservation.check_out_date - reservation.check_in_date).days,
+            adults=reservation.adults,
+            children=reservation.children,
+            room_type_id=room_type.id,
+            room_type=room_type.code,
+            room_type_name=room_type.name,
+            room_id=room.id if room else None,
+            room_number=room.number if room else None,
+            is_vip=reservation.is_vip,
+            has_notes=bool(reservation.notes and reservation.notes.strip()),
+            version=reservation.version,
+        )
+        for reservation, guest, room_type, room in rows
+    ]

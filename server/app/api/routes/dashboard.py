@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.api.deps import HotelTodayDep, require_permission
+from app.api.deps import CurrentPropertyId, HotelTodayDep, require_permission
 from app.core.permissions import P
 from app.db.session import SessionDep
 from app.schemas.dashboard import DashboardRooms, DashboardSummary
@@ -19,5 +19,7 @@ async def rooms(db: SessionDep, today: HotelTodayDep) -> DashboardRooms:
 
 
 @router.get("/summary")
-async def summary(db: SessionDep, today: HotelTodayDep) -> DashboardSummary:
-    return await dashboard_service.get_dashboard_summary(db, today)
+async def summary(
+    db: SessionDep, today: HotelTodayDep, property_id: CurrentPropertyId
+) -> DashboardSummary:
+    return await dashboard_service.get_dashboard_summary(db, today, property_id)

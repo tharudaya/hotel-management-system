@@ -7,7 +7,7 @@ record; events are published after commit.
 """
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
 
 from sqlalchemy import and_, delete, func, or_, select, update
@@ -25,6 +25,7 @@ from app.models import (
     Property,
     Reservation,
     ReservationNight,
+    ReservationSource,
     ReservationStatus,
     Room,
     RoomType,
@@ -44,6 +45,7 @@ from app.schemas.reservations import (
     ReservationNoShow,
     ReservationUpdate,
     ReservationView,
+    WalkInCreate,
 )
 from app.services import idempotency
 from app.services.audit import ClientInfo, record_change
@@ -60,7 +62,6 @@ from app.services.errors import (
 )
 from app.services.guests import GuestService
 from app.services.room_changes import (
-    commit,
     ensure_version,
     load_room,
     publish_room_changes,
@@ -83,6 +84,7 @@ READY_FOR_GUEST: frozenset[HousekeepingStatus] = frozenset(
 )
 
 CREATE_ENDPOINT: str = "POST /api/reservations"
+WALK_IN_ENDPOINT: str = "POST /api/reservations/walk-in"
 # Codes are random (31**8 of them): a collision is rare, several in a row mean a bug.
 CODE_ATTEMPTS: int = 5
 
@@ -177,9 +179,197 @@ class ReservationService:
         """Book a stay. Returns (reservation, replayed); replayed is true when the key was
         used before for the same request, and nothing new was created."""
         body_hash = idempotency.request_hash(data)
-        replay = await self._replay(idempotency_key, body_hash)
+        booked = await self._book(data, idempotency_key, body_hash, CREATE_ENDPOINT)
+        if isinstance(booked, ReservationDetail):
+            return booked, True
+        event = self._event(booked, "created")
+        await self.db.commit()
+
+        await self._publish(event, set(), touches_today=False)
+        return await self._detail(event.reservation_id), False
+
+    async def walk_in(
+        self, data: WalkInCreate, idempotency_key: str
+    ) -> tuple[ReservationDetail, bool]:
+        """Book from today and check in to `room_id`, in one transaction: either the guest
+        has a booking and a room, or nothing happened."""
+        body_hash = idempotency.request_hash(data)
+        replay = await self._replay(idempotency_key, body_hash, WALK_IN_ENDPOINT)
         if replay is not None:
             return replay, True
+        room = await load_room(self.db, data.room_id)
+        booking = ReservationCreate(
+            guest_id=data.guest_id,
+            guest=data.guest,
+            room_type_id=room.room_type_id,
+            check_in_date=self.today,
+            check_out_date=data.check_out_date,
+            adults=data.adults,
+            children=data.children,
+            source=ReservationSource.WALK_IN,
+            notes=data.notes,
+            is_vip=data.is_vip,
+            nightly_rate_minor=data.nightly_rate_minor,
+        )
+        booked = await self._book(booking, idempotency_key, body_hash, WALK_IN_ENDPOINT)
+        if isinstance(booked, ReservationDetail):
+            return booked, True
+        try:
+            # Under the room type lock now: read the room again (its type may have moved).
+            room = await load_room(self.db, data.room_id)
+            ensure_version(room, data.room_version)
+            await self._check_in_steps(booked, room)
+        except BaseException:
+            # The booking (and a new guest) must not outlive a failed check-in.
+            await self.db.rollback()
+            raise
+        event = self._event(booked, "checked_in")
+        await self._commit_room_change(booked.confirmation_code, room.number)
+
+        await self._publish(event, {room.id}, touches_today=True)
+        return await self._detail(event.reservation_id), False
+
+    async def check_in(self, reservation_id: int, room_id: int, room_version: int) -> DashboardRoom:
+        """confirmed -> checked_in, into a ready, vacant room of the reserved type; from the
+        arrival day (any time that day) until the stay ends. Returns the room's tile."""
+        reservation = await self._load_for_update(reservation_id)
+        room = await load_room(self.db, room_id)
+        ensure_version(room, room_version)
+        previous_room_id = reservation.room_id
+        await self._check_in_steps(reservation, room)
+        event = self._event(reservation, "checked_in")
+        await self._commit_room_change(reservation.confirmation_code, room.number)
+
+        # Moving the guest from a pre-assigned room changes that room's tile too.
+        affected = {room_id} | ({previous_room_id} if previous_room_id is not None else set())
+        entries = await self._publish(event, affected, touches_today=True)
+        return entries[room_id]
+
+    async def check_out(self, reservation_id: int, room_version: int) -> DashboardRoom:
+        """checked_in -> checked_out; the room becomes dirty. Leaving before the booked
+        departure shortens the stay to today (at least one night) and drops the unused
+        nights from the total."""
+        reservation = await self._load_for_update(reservation_id)
+        if reservation.status is not ReservationStatus.CHECKED_IN or reservation.room_id is None:
+            raise InvalidTransitionError(
+                f"Cannot check out: the reservation is {STATUS_PHRASES[reservation.status]}."
+            )
+        room = await load_room(self.db, reservation.room_id)
+        ensure_version(room, room_version)
+        housekeeping_before = room.housekeeping_status
+        before: dict[str, object] = {
+            "status": ReservationStatus.CHECKED_IN.value,
+            "housekeeping_status": housekeeping_before.value,
+        }
+        after: dict[str, object] = {
+            "status": ReservationStatus.CHECKED_OUT.value,
+            "housekeeping_status": HousekeepingStatus.DIRTY.value,
+            "room_id": room.id,
+            "room_number": room.number,
+        }
+        leaves_on = max(self.today, reservation.check_in_date + timedelta(days=1))
+        if leaves_on < reservation.check_out_date:
+            nights = await self._nights(reservation.id)
+            kept = {night: rate for night, rate in nights.items() if night < leaves_on}
+            before |= {
+                "check_out_date": reservation.check_out_date.isoformat(),
+                "total_minor": reservation.total_minor,
+            }
+            await self._write_nights(reservation.id, nights, kept)
+            reservation.check_out_date = leaves_on
+            reservation.total_minor = sum(kept.values())
+            after |= {"check_out_date": leaves_on.isoformat(), "total_minor": sum(kept.values())}
+
+        reservation.status = ReservationStatus.CHECKED_OUT
+        reservation.checked_out_at = func.now()
+        room.housekeeping_status = HousekeepingStatus.DIRTY
+        touch(room)  # bumps the version even if the room was already dirty
+        self._audit(AuditAction.RESERVATION_CHECKED_OUT, reservation, before, after)
+        event = self._event(reservation, "checked_out")
+        await self._commit_room_change(reservation.confirmation_code, room.number)
+
+        entries = await self._publish(event, {room.id}, touches_today=True)
+        return entries[room.id]
+
+    async def assign_room(self, reservation_id: int, version: int, room_id: int) -> ReservationView:
+        """Give a confirmed booking its room ahead of arrival (or move it to another).
+
+        The room must be active, of the reserved type and free on the stay's nights.
+        Its housekeeping status does not matter yet; check-in requires it ready."""
+        reservation = await self._load_for_change(reservation_id, version)
+        code = reservation.confirmation_code
+        if reservation.status is not ReservationStatus.CONFIRMED:
+            raise InvalidTransitionError(
+                f"Cannot assign a room to {code}: it is {STATUS_PHRASES[reservation.status]}."
+            )
+        if reservation.check_out_date <= self.today:
+            raise DomainError(f"The stay of {code} has already ended.", code="stay_ended")
+        room = await load_room(self.db, room_id)
+        if reservation.room_id == room.id:
+            return await self.view(reservation_id)
+        self._ensure_room_type(room, reservation)
+        if not await self._room_still_fits(room, reservation.id, _Stay.of(reservation)):
+            raise DomainError(
+                f"Room {room.number} is taken by another guest on some of these nights.",
+                code="room_not_available",
+            )
+        affected = {room.id}
+        before_numbers = await self._room_numbers({reservation.room_id})
+        before: dict[str, object] = {
+            "room_id": reservation.room_id,
+            "room_number": before_numbers.get(reservation.room_id or 0),
+        }
+        if reservation.room_id is not None:
+            previous = await self.db.get_one(Room, reservation.room_id, populate_existing=True)
+            touch(previous)
+            affected.add(previous.id)
+        reservation.room_id = room.id
+        touch(room)
+        self._audit(
+            AuditAction.RESERVATION_ROOM_ASSIGNED,
+            reservation,
+            before,
+            {"room_id": room.id, "room_number": room.number},
+        )
+        event = self._event(reservation, "room_assigned")
+        await self._commit_room_change(code, room.number)
+        await self._publish(event, affected, touches_today=False)
+        return await self.view(reservation_id)
+
+    async def unassign_room(self, reservation_id: int, version: int) -> ReservationView:
+        """Take the room off a confirmed booking (it keeps its room type and nights)."""
+        reservation = await self._load_for_change(reservation_id, version)
+        code = reservation.confirmation_code
+        if reservation.status is not ReservationStatus.CONFIRMED:
+            raise InvalidTransitionError(
+                f"Cannot unassign the room of {code}: it is {STATUS_PHRASES[reservation.status]}."
+            )
+        if reservation.room_id is None:
+            return await self.view(reservation_id)
+        room = await self.db.get_one(Room, reservation.room_id, populate_existing=True)
+        touch(room)
+        reservation.room_id = None
+        self._audit(
+            AuditAction.RESERVATION_ROOM_UNASSIGNED,
+            reservation,
+            {"room_id": room.id, "room_number": room.number},
+            {"room_id": None, "room_number": None},
+        )
+        event = self._event(reservation, "room_unassigned")
+        await self._commit_room_change(code, room.number)
+        await self._publish(event, {room.id}, touches_today=False)
+        return await self.view(reservation_id)
+
+    # --- booking and check-in steps ----------------------------------------------------
+
+    async def _book(
+        self, data: ReservationCreate, idempotency_key: str, body_hash: str, endpoint: str
+    ) -> Reservation | ReservationDetail:
+        """Everything a booking does before commit: the new reservation (and guest, audit
+        row and idempotency record) in the session, or the original if this is a retry."""
+        replay = await self._replay(idempotency_key, body_hash, endpoint)
+        if replay is not None:
+            return replay
 
         prop = await self.db.get_one(Property, self.property_id)
         validate_stay(
@@ -194,10 +384,10 @@ class ReservationService:
         # take rooms from it) wait here.
         room_type = await lock_room_type(self.db, self.property_id, data.room_type_id)
         # A retry with the same key may have committed while we waited for the lock.
-        replay = await self._replay(idempotency_key, body_hash)
+        replay = await self._replay(idempotency_key, body_hash, endpoint)
         if replay is not None:
             await self.db.rollback()
-            return replay, True
+            return replay
         if not room_type.is_active:
             raise DomainError(
                 f"Room type {room_type.code} is retired and cannot be booked.",
@@ -252,40 +442,131 @@ class ReservationService:
                 "currency": reservation.currency,
             },
         )
-        replay = await self._store_key(idempotency_key, body_hash, reservation.id)
-        if replay is not None:
-            return replay, True
-        event = ReservationChanged(
-            property_id=self.property_id,
-            reservation_id=reservation.id,
-            change="created",
-            status=ReservationStatus.CONFIRMED,
-            room_type_id=room_type.id,
-            check_in_date=data.check_in_date,
-            check_out_date=data.check_out_date,
-        )
-        await self.db.commit()
+        replay = await self._store_key(idempotency_key, body_hash, reservation.id, endpoint)
+        return replay if replay is not None else reservation
 
-        await self.bus.publish(event)
-        if data.check_in_date <= self.today < data.check_out_date:
-            # Arrivals today and rooms sold tonight changed.
-            await self.bus.publish(
-                SummaryChanged(summary=await get_dashboard_summary(self.db, self.today))
+    async def _check_in_steps(self, reservation: Reservation, room: Room) -> None:
+        """Check the rules and move the reservation into the room (no commit)."""
+        if reservation.status is not ReservationStatus.CONFIRMED:
+            raise InvalidTransitionError(
+                f"Cannot check in: the reservation is {STATUS_PHRASES[reservation.status]}."
             )
-        detail = await get_reservation_detail(
-            self.db, event.reservation_id, include_contact=self._include_contact
+        if reservation.check_in_date > self.today:
+            raise DomainError(
+                f"Reservation arrives on {reservation.check_in_date.isoformat()}; "
+                "it cannot be checked in before then.",
+                code="too_early",
+            )
+        if reservation.check_out_date <= self.today:
+            raise DomainError("Reservation's stay has already ended.", code="stay_ended")
+        self._ensure_room_type(room, reservation)
+        if room.housekeeping_status not in READY_FOR_GUEST:
+            raise DomainError(
+                f"Room {room.number} is {HOUSEKEEPING_PHRASES[room.housekeeping_status]}; "
+                "it must be cleaned first (awaiting inspection or ready).",
+                code="room_not_ready",
+            )
+        await self._ensure_room_vacant(room, reservation)
+
+        previous_room_id = reservation.room_id
+        reservation.status = ReservationStatus.CHECKED_IN
+        reservation.checked_in_at = func.now()
+        reservation.room_id = room.id
+        touch(room)
+        self._audit(
+            AuditAction.RESERVATION_CHECKED_IN,
+            reservation,
+            {"status": ReservationStatus.CONFIRMED.value, "room_id": previous_room_id},
+            {
+                "status": ReservationStatus.CHECKED_IN.value,
+                "room_id": room.id,
+                "room_number": room.number,
+            },
         )
-        return detail, False
+
+    @staticmethod
+    def _ensure_room_type(room: Room, reservation: Reservation) -> None:
+        if room.room_type_id != reservation.room_type_id:
+            raise DomainError(
+                f"Room {room.number} is not of the reserved room type.",
+                code="room_type_mismatch",
+            )
+
+    async def _ensure_room_vacant(self, room: Room, reservation: Reservation) -> None:
+        occupied = await self.db.scalar(
+            select(Reservation.id).where(
+                Reservation.room_id == room.id, Reservation.status == ReservationStatus.CHECKED_IN
+            )
+        )
+        if occupied is not None:
+            raise DomainError(
+                f"Room {room.number} is occupied. Check the guest out first.",
+                code="room_not_vacant",
+            )
+        held_by_other = await self.db.scalar(
+            select(Reservation.id).where(
+                Reservation.room_id == room.id,
+                Reservation.status == ReservationStatus.CONFIRMED,
+                Reservation.id != reservation.id,
+                Reservation.check_in_date < reservation.check_out_date,
+                Reservation.check_out_date > self.today,
+            )
+        )
+        if held_by_other is not None:
+            raise DomainError(
+                f"Room {room.number} is assigned to another reservation for these nights.",
+                code="room_not_vacant",
+            )
+
+    async def _load_for_update(self, reservation_id: int) -> Reservation:
+        """Row lock without a version check (check-in and check-out use the room's)."""
+        reservation = await self.db.scalar(
+            select(Reservation)
+            .where(Reservation.id == reservation_id, Reservation.property_id == self.property_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if reservation is None:
+            raise NotFoundError(f"Reservation {reservation_id} not found")
+        return reservation
+
+    async def _commit_room_change(self, code: str, room_number: str) -> None:
+        """Commit a change that moves a guest or a booking into or out of a room."""
+        try:
+            await self.db.commit()
+        except StaleDataError:
+            await self.db.rollback()
+            raise VersionConflictError(
+                f"Reservation {code} or room {room_number} was changed by someone else. "
+                "Reload and try again."
+            ) from None
+        except IntegrityError as exc:
+            # Database backstop for the vacancy checks (a concurrent check-in or
+            # assignment won the race): the exclusion constraint or the one-party index.
+            await self.db.rollback()
+            text = str(exc.orig)
+            if "ex_reservations_room_no_overlap" in text or "uq_reservations_room_in_house" in text:
+                raise DomainError(
+                    f"Room {room_number} was just taken by another reservation for these "
+                    "nights. Choose another room.",
+                    code="room_not_vacant",
+                ) from None
+            raise
+
+    async def _detail(self, reservation_id: int) -> ReservationDetail:
+        return await get_reservation_detail(
+            self.db, reservation_id, include_contact=self._include_contact
+        )
 
     # --- steps -----------------------------------------------------------------------
 
-    async def _replay(self, key: str, body_hash: str) -> ReservationDetail | None:
+    async def _replay(
+        self, key: str, body_hash: str, endpoint: str = CREATE_ENDPOINT
+    ) -> ReservationDetail | None:
         record = await idempotency.find(self.db, key, self._actor_id)
         if record is None:
             return None
-        reference = idempotency.replayed_reference(
-            record, endpoint=CREATE_ENDPOINT, body_hash=body_hash
-        )
+        reference = idempotency.replayed_reference(record, endpoint=endpoint, body_hash=body_hash)
         return await get_reservation_detail(
             self.db,
             int(reference.removeprefix("reservation:")),
@@ -367,7 +648,7 @@ class ReservationService:
         )
 
     async def _store_key(
-        self, key: str, body_hash: str, reservation_id: int
+        self, key: str, body_hash: str, reservation_id: int, endpoint: str = CREATE_ENDPOINT
     ) -> ReservationDetail | None:
         """Record the key. If a concurrent request with the same key won, undo this
         booking and answer like a retry (the original, or 422 for another body)."""
@@ -377,7 +658,7 @@ class ReservationService:
                     idempotency.new_record(
                         key=key,
                         user_id=self._actor_id,
-                        endpoint=CREATE_ENDPOINT,
+                        endpoint=endpoint,
                         body_hash=body_hash,
                         reference=f"reservation:{reservation_id}",
                     )
@@ -386,7 +667,7 @@ class ReservationService:
             if "uq_idempotency_keys_key_user_id" not in str(exc.orig):
                 raise
             await self.db.rollback()
-            replay = await self._replay(key, body_hash)
+            replay = await self._replay(key, body_hash, endpoint)
             if replay is None:  # pragma: no cover - the conflicting row exists
                 raise
             return replay
@@ -688,8 +969,15 @@ class ReservationService:
             Reservation.check_out_date > stay.check_in_date,
         )
         if stay.check_in_date <= self.today < stay.check_out_date:
-            # Needs the room tonight: an overstaying guest still in it counts too.
-            conflict = or_(conflict, Reservation.status == ReservationStatus.CHECKED_IN)
+            # Needs the room tonight: an overstaying guest still in it counts too (one due
+            # out today does not: that is a turnover).
+            conflict = or_(
+                conflict,
+                and_(
+                    Reservation.status == ReservationStatus.CHECKED_IN,
+                    Reservation.check_out_date < self.today,
+                ),
+            )
         other = await self.db.scalar(
             select(Reservation.id)
             .where(
@@ -747,9 +1035,7 @@ class ReservationService:
             after={**after, "confirmation_code": reservation.confirmation_code},
         )
 
-    def _event(
-        self, reservation: Reservation, change: Literal["updated", "cancelled", "no_show"]
-    ) -> ReservationChanged:
+    def _event(self, reservation: Reservation, change: ChangeKind) -> ReservationChanged:
         return ReservationChanged(
             property_id=self.property_id,
             reservation_id=reservation.id,
@@ -779,7 +1065,9 @@ class ReservationService:
 
     async def _publish(
         self, event: ReservationChanged, rooms: set[int], *, touches_today: bool
-    ) -> None:
+    ) -> dict[int, DashboardRoom]:
+        """reservation_changed, then the affected rooms' tiles and the summary (or just
+        the summary when the stay touches today). Returns the room entries."""
         await self.bus.publish(event)
         stay = _Stay(
             check_in_date=event.check_in_date,
@@ -787,15 +1075,26 @@ class ReservationService:
             room_type_id=event.room_type_id,
         )
         if rooms:
-            # Room tiles changed (dates or the arrival left); this also sends the summary.
-            await publish_room_changes(self.db, self.bus, self.today, rooms)
-        elif touches_today or stay.covers(self.today):
+            # Room tiles changed; this also sends the summary.
+            return await publish_room_changes(self.db, self.bus, self.today, rooms)
+        if touches_today or stay.covers(self.today):
             await self.bus.publish(
                 SummaryChanged(summary=await get_dashboard_summary(self.db, self.today))
             )
+        return {}
 
 
 IN_HOUSE_CHANGES: frozenset[str] = frozenset({"check_out_date", "notes"})
+type ChangeKind = Literal[
+    "created",
+    "updated",
+    "cancelled",
+    "no_show",
+    "room_assigned",
+    "room_unassigned",
+    "checked_in",
+    "checked_out",
+]
 # Reservation fields shown on the assigned room's dashboard tile (besides the dates).
 TILE_FIELDS: frozenset[str] = frozenset({"notes", "is_vip"})
 
@@ -877,175 +1176,3 @@ async def find_reservation_id_by_code(db: AsyncSession, code: str, property_id: 
     if reservation_id is None:
         raise NotFoundError(f"No reservation with the code {normalised}")
     return reservation_id
-
-
-async def _load_reservation_for_update(db: AsyncSession, reservation_id: int) -> Reservation:
-    # Row lock: concurrent check-ins/outs of the same reservation run one after
-    # the other, and the second sees the first one's result.
-    reservation = await db.scalar(
-        select(Reservation)
-        .where(Reservation.id == reservation_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if reservation is None:
-        raise NotFoundError(f"Reservation {reservation_id} not found")
-    return reservation
-
-
-async def _ensure_room_free_for(
-    db: AsyncSession, room: Room, reservation: Reservation, today: date
-) -> None:
-    occupied = await db.scalar(
-        select(Reservation.id).where(
-            Reservation.room_id == room.id, Reservation.status == ReservationStatus.CHECKED_IN
-        )
-    )
-    if occupied is not None:
-        raise DomainError(f"Room {room.number} is occupied.", code="room_not_vacant")
-
-    held_by_other = await db.scalar(
-        select(Reservation.id).where(
-            Reservation.room_id == room.id,
-            Reservation.status == ReservationStatus.CONFIRMED,
-            Reservation.id != reservation.id,
-            Reservation.check_in_date < reservation.check_out_date,
-            Reservation.check_out_date > today,
-        )
-    )
-    if held_by_other is not None:
-        raise DomainError(
-            f"Room {room.number} is assigned to another reservation for these nights.",
-            code="room_not_vacant",
-        )
-
-
-async def check_in(
-    db: AsyncSession,
-    bus: EventBus,
-    *,
-    reservation_id: int,
-    room_id: int,
-    expected_room_version: int,
-    actor: User,
-    property_id: int,
-    client: ClientInfo,
-    today: date,
-) -> DashboardRoom:
-    reservation = await _load_reservation_for_update(db, reservation_id)
-    if reservation.status is not ReservationStatus.CONFIRMED:
-        raise InvalidTransitionError(
-            f"Cannot check in: the reservation is {STATUS_PHRASES[reservation.status]}."
-        )
-    if reservation.check_in_date > today:
-        raise DomainError(
-            f"Reservation arrives on {reservation.check_in_date.isoformat()}; "
-            "it cannot be checked in before then.",
-            code="too_early",
-        )
-    if reservation.check_out_date <= today:
-        raise DomainError("Reservation's stay has already ended.", code="stay_ended")
-
-    room = await load_room(db, room_id)
-    ensure_version(room, expected_room_version)
-    if room.room_type_id != reservation.room_type_id:
-        raise DomainError(
-            f"Room {room.number} is not of the reserved room type.", code="room_type_mismatch"
-        )
-    if room.housekeeping_status not in READY_FOR_GUEST:
-        raise DomainError(
-            f"Room {room.number} is {HOUSEKEEPING_PHRASES[room.housekeeping_status]}; "
-            "it must be cleaned first (awaiting inspection or ready).",
-            code="room_not_ready",
-        )
-    await _ensure_room_free_for(db, room, reservation, today)
-
-    previous_room_id = reservation.room_id
-    room_number = room.number  # read now: a failed commit expires loaded objects
-    reservation.status = ReservationStatus.CHECKED_IN
-    reservation.checked_in_at = func.now()
-    reservation.room_id = room.id
-    touch(room)
-    record_change(
-        db,
-        action=AuditAction.RESERVATION_CHECKED_IN,
-        target_type="reservation",
-        target_id=reservation.id,
-        actor=actor,
-        property_id=property_id,
-        client=client,
-        before={"status": ReservationStatus.CONFIRMED.value, "room_id": previous_room_id},
-        after={
-            "status": ReservationStatus.CHECKED_IN.value,
-            "room_id": room.id,
-            "room_number": room.number,
-            "confirmation_code": reservation.confirmation_code,
-        },
-    )
-    try:
-        await commit(db, room)
-    except IntegrityError:
-        # Database backstop for the vacancy checks above (a concurrent check-in
-        # or assignment won the race).
-        await db.rollback()
-        raise DomainError(
-            f"Room {room_number} was just taken by another reservation.", code="room_not_vacant"
-        ) from None
-
-    # Moving the guest from a pre-assigned room changes that room's entry too.
-    affected = {room_id}
-    if previous_room_id is not None:
-        affected.add(previous_room_id)
-    entries = await publish_room_changes(db, bus, today, affected)
-    return entries[room_id]
-
-
-async def check_out(
-    db: AsyncSession,
-    bus: EventBus,
-    *,
-    reservation_id: int,
-    expected_room_version: int,
-    actor: User,
-    property_id: int,
-    client: ClientInfo,
-    today: date,
-) -> DashboardRoom:
-    reservation = await _load_reservation_for_update(db, reservation_id)
-    if reservation.status is not ReservationStatus.CHECKED_IN or reservation.room_id is None:
-        raise InvalidTransitionError(
-            f"Cannot check out: the reservation is {STATUS_PHRASES[reservation.status]}."
-        )
-
-    room = await load_room(db, reservation.room_id)
-    ensure_version(room, expected_room_version)
-    housekeeping_before = room.housekeeping_status
-
-    reservation.status = ReservationStatus.CHECKED_OUT
-    reservation.checked_out_at = func.now()
-    room.housekeeping_status = HousekeepingStatus.DIRTY
-    touch(room)  # bumps the version even if the room was already dirty
-    record_change(
-        db,
-        action=AuditAction.RESERVATION_CHECKED_OUT,
-        target_type="reservation",
-        target_id=reservation.id,
-        actor=actor,
-        property_id=property_id,
-        client=client,
-        before={
-            "status": ReservationStatus.CHECKED_IN.value,
-            "housekeeping_status": housekeeping_before.value,
-        },
-        after={
-            "status": ReservationStatus.CHECKED_OUT.value,
-            "housekeeping_status": HousekeepingStatus.DIRTY.value,
-            "room_id": room.id,
-            "room_number": room.number,
-            "confirmation_code": reservation.confirmation_code,
-        },
-    )
-    await commit(db, room)
-
-    entries = await publish_room_changes(db, bus, today, [room.id])
-    return entries[room.id]

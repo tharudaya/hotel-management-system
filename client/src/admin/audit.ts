@@ -33,6 +33,8 @@ export const ACTIONS: Record<AuditActionName, { label: string; group: ActionGrou
   'reservation.updated': { label: 'Reservation changed', group: 'Reservations' },
   'reservation.cancelled': { label: 'Reservation cancelled', group: 'Reservations' },
   'reservation.marked_no_show': { label: 'Marked as no-show', group: 'Reservations' },
+  'reservation.room_assigned': { label: 'Room assigned', group: 'Front desk' },
+  'reservation.room_unassigned': { label: 'Room unassigned', group: 'Front desk' },
   'guest.created': { label: 'Guest added', group: 'Reservations' },
   'guest.updated': { label: 'Guest details changed', group: 'Reservations' },
   'reservation.checked_in': { label: 'Checked in', group: 'Front desk' },

@@ -116,16 +116,23 @@ describe('two windows', () => {
     })
     expect(response.status).toBe(200)
 
-    await waitFor(() => cachedRoom(windowB, target.room_id)?.version === target.version + 1, 1000)
+    const departuresBefore = summaryBefore?.departures_checked_out ?? 0
+    // The room and the summary arrive as separate events; both must be there in time.
+    await waitFor(
+      () =>
+        cachedRoom(windowB, target.room_id)?.version === target.version + 1 &&
+        windowB.queryClient.getQueryData<DashboardSummary>(dashboardKeys.summary)
+          ?.departures_checked_out ===
+          departuresBefore + 1,
+      1000,
+    )
     const elapsed = performance.now() - start
 
     const roomInB = cachedRoom(windowB, target.room_id)
     expect(roomInB?.housekeeping_status).toBe('dirty')
     expect(roomInB?.guest_name).not.toBe(target.guest_name)
     const summaryAfter = windowB.queryClient.getQueryData<DashboardSummary>(dashboardKeys.summary)
-    expect(summaryAfter?.departures_checked_out).toBe(
-      (summaryBefore?.departures_checked_out ?? 0) + 1,
-    )
+    expect(summaryAfter?.departures_checked_out).toBe(departuresBefore + 1)
     expect(elapsed).toBeLessThan(1000)
     console.log(
       `Room ${target.number}: window B updated ${elapsed.toFixed(0)} ms after window A's check-out request started`,

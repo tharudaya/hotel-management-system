@@ -18,6 +18,8 @@ class AuditAction(StrEnum):
     RESERVATION_UPDATED = "reservation.updated"
     RESERVATION_CANCELLED = "reservation.cancelled"
     RESERVATION_MARKED_NO_SHOW = "reservation.marked_no_show"
+    RESERVATION_ROOM_ASSIGNED = "reservation.room_assigned"
+    RESERVATION_ROOM_UNASSIGNED = "reservation.room_unassigned"
     RESERVATION_CHECKED_IN = "reservation.checked_in"
     RESERVATION_CHECKED_OUT = "reservation.checked_out"
     ROOM_HOUSEKEEPING_STATUS_CHANGED = "room.housekeeping_status_changed"

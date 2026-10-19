@@ -254,6 +254,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reservations/walk-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Walk In
+         * @description Book from today (source walk_in) and check in to `room_id`, in one transaction.
+         *     Needs reservation.create and reservation.check_in. Idempotent like POST /.
+         */
+        post: operations["walk_in_api_reservations_walk_in_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reservations/availability": {
         parameters: {
             query?: never;
@@ -376,7 +397,8 @@ export interface paths {
         put?: never;
         /**
          * Check In
-         * @description Check the guest in to `room_id`. Returns the room's updated dashboard entry.
+         * @description Check the guest in to `room_id` (ready, vacant, of the reserved type), from the
+         *     arrival day on. Returns the room's updated dashboard entry.
          */
         post: operations["check_in_api_reservations__reservation_id__check_in_post"];
         delete?: never;
@@ -396,9 +418,48 @@ export interface paths {
         put?: never;
         /**
          * Check Out
-         * @description Check the guest out; the room becomes dirty. Returns its updated dashboard entry.
+         * @description Check the guest out; the room becomes dirty. Leaving early shortens the stay to
+         *     today and drops the unused nights. Returns the room's updated dashboard entry.
          */
         post: operations["check_out_api_reservations__reservation_id__check_out_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reservations/{reservation_id}/assign-room": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign Room
+         * @description Give a confirmed booking a room before arrival (active, of the reserved type, free
+         *     on its nights), or move it to another one.
+         */
+        post: operations["assign_room_api_reservations__reservation_id__assign_room_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reservations/{reservation_id}/unassign-room": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unassign Room */
+        post: operations["unassign_room_api_reservations__reservation_id__unassign_room_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -905,6 +966,52 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ArrivalEntry
+         * @description A booking arriving today (or late: due earlier, not here yet) or checked in today.
+         *     Shown to every dashboard user: no contact details.
+         */
+        ArrivalEntry: {
+            /** Reservation Id */
+            reservation_id: number;
+            /** Confirmation Code */
+            confirmation_code: string;
+            /** Guest Name */
+            guest_name: string;
+            status: components["schemas"]["ReservationStatus"];
+            /**
+             * Check In Date
+             * Format: date
+             */
+            check_in_date: string;
+            /**
+             * Check Out Date
+             * Format: date
+             */
+            check_out_date: string;
+            /** Nights */
+            nights: number;
+            /** Adults */
+            adults: number;
+            /** Children */
+            children: number;
+            /** Room Type Id */
+            room_type_id: number;
+            /** Room Type */
+            room_type: string;
+            /** Room Type Name */
+            room_type_name: string;
+            /** Room Id */
+            room_id: number | null;
+            /** Room Number */
+            room_number: string | null;
+            /** Is Vip */
+            is_vip: boolean;
+            /** Has Notes */
+            has_notes: boolean;
+            /** Version */
+            version: number;
+        };
         /** AssignableRole */
         AssignableRole: {
             /** Id */
@@ -919,7 +1026,7 @@ export interface components {
          * @description What changed. Stored as plain strings, so new actions need no migration.
          * @enum {string}
          */
-        AuditAction: "reservation.created" | "reservation.updated" | "reservation.cancelled" | "reservation.marked_no_show" | "reservation.checked_in" | "reservation.checked_out" | "room.housekeeping_status_changed" | "room.created" | "room.updated" | "room.retired" | "room.reactivated" | "room_type.created" | "room_type.updated" | "room_type.retired" | "room_type.reactivated" | "guest.created" | "guest.updated" | "user.created" | "user.updated" | "user.role_changed" | "user.deactivated" | "user.reactivated" | "user.sessions_revoked" | "user.invite_sent" | "user.password_reset_sent" | "user.activated" | "user.password_reset" | "user.expired" | "role.created" | "role.updated" | "role.deleted";
+        AuditAction: "reservation.created" | "reservation.updated" | "reservation.cancelled" | "reservation.marked_no_show" | "reservation.room_assigned" | "reservation.room_unassigned" | "reservation.checked_in" | "reservation.checked_out" | "room.housekeeping_status_changed" | "room.created" | "room.updated" | "room.retired" | "room.reactivated" | "room_type.created" | "room_type.updated" | "room_type.retired" | "room_type.reactivated" | "guest.created" | "guest.updated" | "user.created" | "user.updated" | "user.role_changed" | "user.deactivated" | "user.reactivated" | "user.sessions_revoked" | "user.invite_sent" | "user.password_reset_sent" | "user.activated" | "user.password_reset" | "user.expired" | "role.created" | "role.updated" | "role.deleted";
         /** AuditActor */
         AuditActor: {
             /** Id */
@@ -1090,6 +1197,8 @@ export interface components {
             out_of_order: number;
             /** Occupancy Percent */
             occupancy_percent: number;
+            /** Arrivals */
+            arrivals: components["schemas"]["ArrivalEntry"][];
         };
         /** ErrorResponse */
         ErrorResponse: {
@@ -1633,6 +1742,13 @@ export interface components {
             full_name: string;
             status: components["schemas"]["UserStatus"];
         };
+        /** RoomAssignment */
+        RoomAssignment: {
+            /** Version */
+            version: number;
+            /** Room Id */
+            room_id: number;
+        };
         /**
          * RoomCreate
          * @description New rooms start with housekeeping status inspected (Ready).
@@ -1778,6 +1894,11 @@ export interface components {
             bed_setup?: string | null;
             /** Description */
             description?: string | null;
+        };
+        /** RoomUnassignment */
+        RoomUnassignment: {
+            /** Version */
+            version: number;
         };
         /**
          * RoomUpdate
@@ -2005,6 +2126,43 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * WalkInCreate
+         * @description A guest at the desk: booked from today for `room_id`'s type and checked in at once.
+         */
+        WalkInCreate: {
+            /** Guest Id */
+            guest_id?: number | null;
+            guest?: components["schemas"]["GuestCreate"] | null;
+            /** Room Id */
+            room_id: number;
+            /** Room Version */
+            room_version: number;
+            /**
+             * Check Out Date
+             * Format: date
+             */
+            check_out_date: string;
+            /**
+             * Adults
+             * @default 1
+             */
+            adults: number;
+            /**
+             * Children
+             * @default 0
+             */
+            children: number;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Is Vip
+             * @default false
+             */
+            is_vip: boolean;
+            /** Nightly Rate Minor */
+            nightly_rate_minor?: number | null;
         };
     };
     responses: never;
@@ -2522,6 +2680,68 @@ export interface operations {
             };
         };
     };
+    walk_in_api_reservations_walk_in_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WalkInCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReservationDetail"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoAvailabilityResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_availability_api_reservations_availability_get: {
         parameters: {
             query: {
@@ -2924,6 +3144,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_room_api_reservations__reservation_id__assign_room_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reservation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomAssignment"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReservationView"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoAvailabilityResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    unassign_room_api_reservations__reservation_id__unassign_room_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reservation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomUnassignment"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReservationView"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoAvailabilityResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

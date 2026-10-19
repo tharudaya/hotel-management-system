@@ -15,10 +15,13 @@ from tests.conftest import USERNAME_FOR_ROLE, LoginAs
 PUBLIC = "public"
 SIGNED_IN = "any signed-in user"
 
-# What each REST operation requires: a permission key, any signed-in user, or nothing.
-# Every operation in the OpenAPI schema must be listed: adding an endpoint fails this
-# test until its access is decided here.
-ACCESS: dict[tuple[str, str], str] = {
+# Operations that need several permissions at once.
+BOTH_CREATE_AND_CHECK_IN: frozenset[str] = frozenset({P.RESERVATION_CREATE, P.RESERVATION_CHECK_IN})
+
+# What each REST operation requires: a permission key (or a set of keys, all needed),
+# any signed-in user, or nothing. Every operation in the OpenAPI schema must be listed:
+# adding an endpoint fails this test until its access is decided here.
+ACCESS: dict[tuple[str, str], str | frozenset[str]] = {
     ("GET", "/api/health"): PUBLIC,
     ("POST", "/api/auth/login"): PUBLIC,
     ("POST", "/api/auth/logout"): PUBLIC,
@@ -39,6 +42,9 @@ ACCESS: dict[tuple[str, str], str] = {
     ("POST", "/api/reservations/{reservation_id}/no-show"): P.RESERVATION_CANCEL,
     ("POST", "/api/reservations/{reservation_id}/check-in"): P.RESERVATION_CHECK_IN,
     ("POST", "/api/reservations/{reservation_id}/check-out"): P.RESERVATION_CHECK_OUT,
+    ("POST", "/api/reservations/{reservation_id}/assign-room"): P.RESERVATION_CHECK_IN,
+    ("POST", "/api/reservations/{reservation_id}/unassign-room"): P.RESERVATION_CHECK_IN,
+    ("POST", "/api/reservations/walk-in"): BOTH_CREATE_AND_CHECK_IN,
     ("PATCH", "/api/rooms/{room_id}/housekeeping-status"): P.ROOM_UPDATE_HOUSEKEEPING_STATUS,
     ("GET", "/api/admin/users"): P.USER_VIEW,
     ("GET", "/api/admin/users/{user_id}"): P.USER_VIEW,
@@ -77,8 +83,17 @@ ACCESS: dict[tuple[str, str], str] = {
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {r.name: r.permissions for r in DEFAULT_ROLES}
 
 
+def required_keys(rule: str | frozenset[str]) -> frozenset[str]:
+    return frozenset({rule}) if isinstance(rule, str) else rule
+
+
 def test_access_rules_use_known_permissions() -> None:
-    rules = set(ACCESS.values()) - {PUBLIC, SIGNED_IN}
+    rules = {
+        key
+        for rule in ACCESS.values()
+        if rule not in (PUBLIC, SIGNED_IN)
+        for key in required_keys(rule)
+    }
     assert rules <= ALL_PERMISSION_KEYS
 
 
@@ -126,7 +141,7 @@ async def test_each_default_role_reaches_exactly_what_its_permissions_allow(
         if rule == PUBLIC:
             continue
         response = await client.request(method, concrete(path), json={})
-        if rule == SIGNED_IN or rule in ROLE_PERMISSIONS[role]:
+        if rule == SIGNED_IN or required_keys(rule) <= ROLE_PERMISSIONS[role]:
             # Allowed: may still be 404/409/422 for this dummy request, never 401/403.
             assert response.status_code not in (401, 403), (method, path, role)
         else:

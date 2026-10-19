@@ -172,10 +172,20 @@ async def test_check_out_over_rest_is_pushed_to_websocket(
             )
             assert response.status_code == 200, response.text
 
+            # First what happened to the booking (no guest data), then the room, then
+            # the summary.
+            reservation_event = await receive(ws)
+            assert (reservation_event["type"], reservation_event["seq"]) == (
+                "reservation_changed",
+                1,
+            )
+            assert reservation_event["payload"]["change"] == "checked_out"
+            assert reservation_event["payload"]["reservation_id"] == seeded["reservation"]
+
             room_event = await receive(ws)
             assert room_event == {
                 "type": "room_status_changed",
-                "seq": 1,
+                "seq": 2,
                 "payload": {"business_date": "2026-03-10", "room": response.json()},
             }
             assert room_event["payload"]["room"]["occupancy_status"] == "vacant"
@@ -183,7 +193,7 @@ async def test_check_out_over_rest_is_pushed_to_websocket(
 
             summary_event = await receive(ws)
             assert summary_event["type"] == "summary_changed"
-            assert summary_event["seq"] == 2
+            assert summary_event["seq"] == 3
             summary = summary_event["payload"]["summary"]
             assert (summary["in_house"], summary["departures_checked_out"]) == (0, 1)
 
@@ -259,7 +269,8 @@ async def test_late_joiner_hello_carries_current_seq(
         async with connect(client) as ws:
             hello = await receive(ws)
 
-        assert (hello["type"], hello["seq"]) == ("hello", 2)
+        # reservation_changed, room_status_changed, summary_changed
+        assert (hello["type"], hello["seq"]) == ("hello", 3)
 
 
 # --- authentication and authorization --------------------------------------------------
@@ -393,7 +404,7 @@ async def test_logout_only_closes_that_sessions_sockets(
             await staying.post(
                 f"/api/reservations/{seeded['reservation']}/check-out", json={"room_version": 1}
             )
-            assert (await receive(ws_staying))["type"] == "room_status_changed"
+            assert (await receive(ws_staying))["type"] == "reservation_changed"
 
 
 async def test_session_expiry_closes_socket(
@@ -405,7 +416,7 @@ async def test_session_expiry_closes_socket(
         _, client = await live(live_client_factory)
         async with live_db() as db:
             await db.execute(
-                update(UserSession).values(expires_at=datetime.now(UTC) + timedelta(seconds=0.5))
+                update(UserSession).values(expires_at=datetime.now(UTC) + timedelta(seconds=1.5))
             )
             await db.commit()
 
@@ -513,7 +524,7 @@ async def test_permission_change_for_another_user_leaves_socket_open(
             await manager.post(
                 f"/api/reservations/{seeded['reservation']}/check-out", json={"room_version": 1}
             )
-            assert (await receive(ws_manager))["type"] == "room_status_changed"
+            assert (await receive(ws_manager))["type"] == "reservation_changed"
 
 
 async def test_socket_kept_when_permissions_change_but_dashboard_access_remains(

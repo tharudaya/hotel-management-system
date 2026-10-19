@@ -10,7 +10,8 @@ Wire protocol (server -> client only; the socket never accepts writes):
     room_setup_changed   payload {"property_id"}: rooms or room types were added,
                          edited, retired or reactivated; refetch rooms and summary
     reservation_changed  payload {"property_id", "reservation_id", "change"
-                         (created|updated|cancelled|no_show), "status",
+                         (created|updated|cancelled|no_show|room_assigned|
+                         room_unassigned|checked_in|checked_out), "status",
                          "room_type_id", "check_in_date", "check_out_date"}: no guest
                          data; refetch reservations (and availability) over REST
     ping                 heartbeat; payload {}

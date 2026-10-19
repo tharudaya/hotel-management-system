@@ -152,3 +152,40 @@ class ReservationHistoryEntry(BaseModel):
 
 class ReservationView(ReservationDetail):
     history: list[ReservationHistoryEntry]
+
+
+class WalkInCreate(BaseModel):
+    """A guest at the desk: booked from today for `room_id`'s type and checked in at once."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    guest_id: Annotated[int | None, Field(gt=0)] = None
+    guest: GuestCreate | None = None
+    room_id: int = Field(gt=0)
+    # The room version the client saw (from the dashboard tile).
+    room_version: int = Field(ge=1)
+    check_out_date: date
+    adults: int = Field(default=1, ge=1, le=12)
+    children: int = Field(default=0, ge=0, le=12)
+    notes: ReservationNotes | None = None
+    is_vip: bool = False
+    nightly_rate_minor: int | None = Field(default=None, ge=0, le=100_000_000)
+
+    @model_validator(mode="after")
+    def _one_guest(self) -> Self:
+        if (self.guest_id is None) == (self.guest is None):
+            raise ValueError("Give either guest_id (an existing guest) or guest (a new one)")
+        return self
+
+
+class RoomAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1)
+    room_id: int = Field(gt=0)
+
+
+class RoomUnassignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1)
