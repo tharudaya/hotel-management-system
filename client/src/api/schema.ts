@@ -276,6 +276,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reservations/by-code/{confirmation_code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Reservation By Code
+         * @description Look a booking up by the code the guest reads out (case does not matter).
+         */
+        get: operations["get_reservation_by_code_api_reservations_by_code__confirmation_code__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reservations/{reservation_id}": {
         parameters: {
             query?: never;
@@ -285,11 +305,60 @@ export interface paths {
         };
         /**
          * Get Reservation
-         * @description Guest email and phone are included only with guest.view_contact.
+         * @description Details with nights, guest and history (from the audit log). Guest email and phone
+         *     are included only with guest.view_contact.
          */
         get: operations["get_reservation_api_reservations__reservation_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Modify Reservation
+         * @description Change dates, room type, guests, notes, VIP or price (send `version`).
+         *
+         *     Confirmed bookings only, except that a checked-in guest's departure date and notes
+         *     can change. On 409 no_availability the booking is unchanged. A price change needs
+         *     reservation.override_rate.
+         */
+        patch: operations["modify_reservation_api_reservations__reservation_id__patch"];
+        trace?: never;
+    };
+    "/api/reservations/{reservation_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Reservation
+         * @description confirmed -> cancelled, with a reason. A room assigned in advance is released.
+         */
+        post: operations["cancel_reservation_api_reservations__reservation_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reservations/{reservation_id}/no-show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark No Show
+         * @description confirmed -> no_show, on or after the arrival day.
+         */
+        post: operations["mark_no_show_api_reservations__reservation_id__no_show_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -850,7 +919,7 @@ export interface components {
          * @description What changed. Stored as plain strings, so new actions need no migration.
          * @enum {string}
          */
-        AuditAction: "reservation.created" | "reservation.checked_in" | "reservation.checked_out" | "room.housekeeping_status_changed" | "room.created" | "room.updated" | "room.retired" | "room.reactivated" | "room_type.created" | "room_type.updated" | "room_type.retired" | "room_type.reactivated" | "guest.created" | "guest.updated" | "user.created" | "user.updated" | "user.role_changed" | "user.deactivated" | "user.reactivated" | "user.sessions_revoked" | "user.invite_sent" | "user.password_reset_sent" | "user.activated" | "user.password_reset" | "user.expired" | "role.created" | "role.updated" | "role.deleted";
+        AuditAction: "reservation.created" | "reservation.updated" | "reservation.cancelled" | "reservation.marked_no_show" | "reservation.checked_in" | "reservation.checked_out" | "room.housekeeping_status_changed" | "room.created" | "room.updated" | "room.retired" | "room.reactivated" | "room_type.created" | "room_type.updated" | "room_type.retired" | "room_type.reactivated" | "guest.created" | "guest.updated" | "user.created" | "user.updated" | "user.role_changed" | "user.deactivated" | "user.reactivated" | "user.sessions_revoked" | "user.invite_sent" | "user.password_reset_sent" | "user.activated" | "user.password_reset" | "user.expired" | "role.created" | "role.updated" | "role.deleted";
         /** AuditActor */
         AuditActor: {
             /** Id */
@@ -1134,6 +1203,13 @@ export interface components {
              */
             database: "ok" | "unavailable";
         };
+        /** HistoryActor */
+        HistoryActor: {
+            /** Id */
+            id: number;
+            /** Full Name */
+            full_name: string;
+        };
         /** HotelInfo */
         HotelInfo: {
             /** Name */
@@ -1240,6 +1316,13 @@ export interface components {
             property: components["schemas"]["PropertyRef"];
             role: components["schemas"]["RoleRef"];
         };
+        /** ReservationCancel */
+        ReservationCancel: {
+            /** Version */
+            version: number;
+            /** Reason */
+            reason: string;
+        };
         /**
          * ReservationCreate
          * @description A new booking for an existing guest (`guest_id`) or a new one (`guest`).
@@ -1335,6 +1418,33 @@ export interface components {
             created_at: string;
         };
         /**
+         * ReservationHistoryEntry
+         * @description One audit log entry about the reservation, oldest first.
+         */
+        ReservationHistoryEntry: {
+            /** Action */
+            action: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            actor: components["schemas"]["HistoryActor"] | null;
+            status_before: components["schemas"]["ReservationStatus"] | null;
+            status_after: components["schemas"]["ReservationStatus"] | null;
+            /** Changed */
+            changed: string[];
+            /** Reason */
+            reason: string | null;
+        };
+        /** ReservationNoShow */
+        ReservationNoShow: {
+            /** Version */
+            version: number;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
          * ReservationSource
          * @description How the booking reached the hotel.
          * @enum {string}
@@ -1345,6 +1455,89 @@ export interface components {
          * @enum {string}
          */
         ReservationStatus: "confirmed" | "checked_in" | "checked_out" | "cancelled" | "no_show";
+        /**
+         * ReservationUpdate
+         * @description Only the fields sent change. `version` is the one the client last saw.
+         *
+         *     A checked-in reservation accepts only check_out_date and notes. nightly_rate_minor
+         *     sets the price of every night of the (new) stay; without it, nights that remain
+         *     keep their price and new nights get the room type's current base rate.
+         */
+        ReservationUpdate: {
+            /** Version */
+            version: number;
+            /** Check In Date */
+            check_in_date?: string | null;
+            /** Check Out Date */
+            check_out_date?: string | null;
+            /** Room Type Id */
+            room_type_id?: number | null;
+            /** Adults */
+            adults?: number | null;
+            /** Children */
+            children?: number | null;
+            /** Notes */
+            notes?: string | null;
+            /** Is Vip */
+            is_vip?: boolean | null;
+            /** Nightly Rate Minor */
+            nightly_rate_minor?: number | null;
+        };
+        /** ReservationView */
+        ReservationView: {
+            /** Id */
+            id: number;
+            /** Confirmation Code */
+            confirmation_code: string;
+            status: components["schemas"]["ReservationStatus"];
+            source: components["schemas"]["ReservationSource"];
+            /**
+             * Check In Date
+             * Format: date
+             */
+            check_in_date: string;
+            /**
+             * Check Out Date
+             * Format: date
+             */
+            check_out_date: string;
+            /** Nights */
+            nights: number;
+            /** Adults */
+            adults: number;
+            /** Children */
+            children: number;
+            /** Is Vip */
+            is_vip: boolean;
+            /** Notes */
+            notes: string | null;
+            /** Room Type Id */
+            room_type_id: number;
+            /** Room Type */
+            room_type: string;
+            /** Room Type Name */
+            room_type_name: string;
+            /** Room Id */
+            room_id: number | null;
+            /** Room Number */
+            room_number: string | null;
+            guest: components["schemas"]["GuestOut"];
+            /** Nightly Rates */
+            nightly_rates: components["schemas"]["NightlyRate"][];
+            /** Total Minor */
+            total_minor: number;
+            /** Currency */
+            currency: string;
+            /** Version */
+            version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** History */
+            history: components["schemas"]["ReservationHistoryEntry"][];
+        };
         /** RoleAssignment */
         RoleAssignment: {
             /** Role Id */
@@ -2363,12 +2556,12 @@ export interface operations {
             };
         };
     };
-    get_reservation_api_reservations__reservation_id__get: {
+    get_reservation_by_code_api_reservations_by_code__confirmation_code__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                reservation_id: number;
+                confirmation_code: string;
             };
             cookie?: never;
         };
@@ -2380,7 +2573,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ReservationDetail"];
+                    "application/json": components["schemas"]["ReservationView"];
                 };
             };
             /** @description Not Found */
@@ -2399,6 +2592,232 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_reservation_api_reservations__reservation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reservation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReservationView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    modify_reservation_api_reservations__reservation_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reservation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReservationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReservationView"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoAvailabilityResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    cancel_reservation_api_reservations__reservation_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reservation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReservationCancel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReservationView"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoAvailabilityResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    mark_no_show_api_reservations__reservation_id__no_show_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reservation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReservationNoShow"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReservationView"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoAvailabilityResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

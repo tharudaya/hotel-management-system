@@ -5,15 +5,19 @@ checks is still true when it commits: the last room is sold exactly once.
 """
 
 import asyncio
+import contextlib
 import uuid
 from datetime import timedelta
 
+import pytest
 from httpx import AsyncClient, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
 from app.models import Reservation, Room, RoomType
+from app.services import reservations as reservation_module
+from app.services.availability import lock_room_type
 from app.services.permissions import get_default_property_id
 from tests.conftest import Roles, live_clients
 from tests.factories import new_guest, new_reservation
@@ -185,3 +189,65 @@ async def test_a_booking_is_pushed_to_dashboards_without_guest_data(
     }
     assert "Ada" not in str(changed)
     assert summary["type"] == "summary_changed"  # arriving today
+
+
+async def test_swapping_room_types_in_parallel_does_not_deadlock(
+    test_settings: Settings,
+    seeded: dict[str, int],
+    live_db: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A moves STD -> LST while B moves LST -> STD; each locks both types. A hook holds
+    each request after its first room type lock until both have one (or 1 s passes),
+    so in the wrong order they would cross and deadlock. In id order the second simply
+    waits for the first."""
+    lst_id, _ = await one_room_left(live_db)  # LST: two rooms, one booked tonight
+    async with live_db() as db:
+        pid = await get_default_property_id(db)
+        std = await db.scalar(
+            select(RoomType).where(RoomType.property_id == pid, RoomType.code == "STD")
+        )
+        assert std is not None
+        lst = await db.get_one(RoomType, lst_id)
+        later = (TODAY + timedelta(days=5), TODAY + timedelta(days=7))
+        a = new_reservation(std, check_in_date=later[0], check_out_date=later[1])
+        b = new_reservation(lst, check_in_date=later[0], check_out_date=later[1])
+        db.add_all([a, b])
+        await db.commit()
+        moves = [(a.id, lst_id), (b.id, std.id)]
+
+    holding: set[int] = set()
+    both_hold = asyncio.Event()
+
+    async def lock_and_wait(db: AsyncSession, property_id: int, room_type_id: int) -> RoomType:
+        room_type = await lock_room_type(db, property_id, room_type_id)
+        key = id(db)
+        if key not in holding:  # first lock of this request
+            holding.add(key)
+            if len(holding) == 2:
+                both_hold.set()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(both_hold.wait(), timeout=1)
+        return room_type
+
+    monkeypatch.setattr(reservation_module, "lock_room_type", lock_and_wait)
+    async with live_clients(test_settings) as make:
+        _, desk = await live(make)
+
+        responses = await asyncio.wait_for(
+            asyncio.gather(
+                *(
+                    desk.patch(
+                        f"/api/reservations/{reservation_id}",
+                        json={"version": 1, "room_type_id": target},
+                    )
+                    for reservation_id, target in moves
+                )
+            ),
+            timeout=15,
+        )
+
+    assert [r.status_code for r in responses] == [200, 200], [r.text for r in responses]
+    async with live_db() as db:
+        assert (await db.get_one(Reservation, moves[0][0])).room_type_id == lst_id
+        assert (await db.get_one(Reservation, moves[1][0])).room_type_id == std.id

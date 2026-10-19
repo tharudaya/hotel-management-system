@@ -15,6 +15,9 @@ class AuditAction(StrEnum):
     """What changed. Stored as plain strings, so new actions need no migration."""
 
     RESERVATION_CREATED = "reservation.created"
+    RESERVATION_UPDATED = "reservation.updated"
+    RESERVATION_CANCELLED = "reservation.cancelled"
+    RESERVATION_MARKED_NO_SHOW = "reservation.marked_no_show"
     RESERVATION_CHECKED_IN = "reservation.checked_in"
     RESERVATION_CHECKED_OUT = "reservation.checked_out"
     ROOM_HOUSEKEEPING_STATUS_CHANGED = "room.housekeeping_status_changed"

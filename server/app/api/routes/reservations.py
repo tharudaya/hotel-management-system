@@ -21,7 +21,14 @@ from app.schemas.actions import (
 )
 from app.schemas.availability import Availability, AvailabilityQuery
 from app.schemas.dashboard import DashboardRoom
-from app.schemas.reservations import ReservationCreate, ReservationDetail
+from app.schemas.reservations import (
+    ReservationCancel,
+    ReservationCreate,
+    ReservationDetail,
+    ReservationNoShow,
+    ReservationUpdate,
+    ReservationView,
+)
 from app.services import reservations as reservation_service
 from app.services.availability import AvailabilityService
 from app.services.reservations import ReservationService
@@ -30,14 +37,63 @@ router: APIRouter = APIRouter(prefix="/reservations", tags=["reservations"])
 
 ReservationViewer = Annotated[User, Depends(require_permission(P.RESERVATION_VIEW))]
 BookingUser = Annotated[User, Depends(require_permission(P.RESERVATION_CREATE))]
+ModifyUser = Annotated[User, Depends(require_permission(P.RESERVATION_MODIFY))]
+CancelUser = Annotated[User, Depends(require_permission(P.RESERVATION_CANCEL))]
 CheckInUser = Annotated[User, Depends(require_permission(P.RESERVATION_CHECK_IN))]
 CheckOutUser = Annotated[User, Depends(require_permission(P.RESERVATION_CHECK_OUT))]
 ReservationId = Annotated[int, Path(gt=0)]
+ConfirmationCode = Annotated[str, Path(pattern=r"^[A-Za-z0-9]{8}$")]
 # Random per booking attempt (e.g. a UUID), reused only to retry that same attempt.
 IdempotencyKeyHeader = Annotated[
     str,
     Header(alias="Idempotency-Key", min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$"),
 ]
+
+
+def _change_service(
+    user: User,
+    db: SessionDep,
+    bus: EventBusDep,
+    property_id: CurrentPropertyId,
+    client: ClientInfoDep,
+    today: HotelTodayDep,
+    permissions: CurrentPermissions,
+) -> ReservationService:
+    return ReservationService(db, bus, user, property_id, client, today, permissions)
+
+
+def _modify_service(
+    user: ModifyUser,
+    db: SessionDep,
+    bus: EventBusDep,
+    property_id: CurrentPropertyId,
+    client: ClientInfoDep,
+    today: HotelTodayDep,
+    permissions: CurrentPermissions,
+) -> ReservationService:
+    return _change_service(user, db, bus, property_id, client, today, permissions)
+
+
+def _cancel_service(
+    user: CancelUser,
+    db: SessionDep,
+    bus: EventBusDep,
+    property_id: CurrentPropertyId,
+    client: ClientInfoDep,
+    today: HotelTodayDep,
+    permissions: CurrentPermissions,
+) -> ReservationService:
+    return _change_service(user, db, bus, property_id, client, today, permissions)
+
+
+ChangeService = Annotated[ReservationService, Depends(_modify_service)]
+CancelService = Annotated[ReservationService, Depends(_cancel_service)]
+CHANGE_ERRORS: dict[int | str, dict[str, object]] = {
+    status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+    status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
+    status.HTTP_409_CONFLICT: {"model": NoAvailabilityResponse},
+    status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": ErrorResponse},
+}
 ERRORS: dict[int | str, dict[str, object]] = {
     status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
     status.HTTP_409_CONFLICT: {"model": ErrorResponse},
@@ -100,17 +156,74 @@ async def get_availability(
     )
 
 
+@router.get(
+    "/by-code/{confirmation_code}",
+    responses={status.HTTP_404_NOT_FOUND: {"model": ErrorResponse}},
+)
+async def get_reservation_by_code(
+    confirmation_code: ConfirmationCode,
+    db: SessionDep,
+    user: ReservationViewer,
+    property_id: CurrentPropertyId,
+    permissions: CurrentPermissions,
+) -> ReservationView:
+    """Look a booking up by the code the guest reads out (case does not matter)."""
+    reservation_id = await reservation_service.find_reservation_id_by_code(
+        db, confirmation_code, property_id
+    )
+    return await reservation_service.get_reservation_view(
+        db,
+        reservation_id,
+        include_contact=P.GUEST_VIEW_CONTACT in permissions,
+        property_id=property_id,
+    )
+
+
 @router.get("/{reservation_id}", responses={status.HTTP_404_NOT_FOUND: {"model": ErrorResponse}})
 async def get_reservation(
     reservation_id: ReservationId,
     db: SessionDep,
     user: ReservationViewer,
+    property_id: CurrentPropertyId,
     permissions: CurrentPermissions,
-) -> ReservationDetail:
-    """Guest email and phone are included only with guest.view_contact."""
-    return await reservation_service.get_reservation_detail(
-        db, reservation_id, include_contact=P.GUEST_VIEW_CONTACT in permissions
+) -> ReservationView:
+    """Details with nights, guest and history (from the audit log). Guest email and phone
+    are included only with guest.view_contact."""
+    return await reservation_service.get_reservation_view(
+        db,
+        reservation_id,
+        include_contact=P.GUEST_VIEW_CONTACT in permissions,
+        property_id=property_id,
     )
+
+
+@router.patch("/{reservation_id}", responses=CHANGE_ERRORS)
+async def modify_reservation(
+    reservation_id: ReservationId, body: ReservationUpdate, service: ChangeService
+) -> ReservationView:
+    """Change dates, room type, guests, notes, VIP or price (send `version`).
+
+    Confirmed bookings only, except that a checked-in guest's departure date and notes
+    can change. On 409 no_availability the booking is unchanged. A price change needs
+    reservation.override_rate.
+    """
+    return await service.modify(reservation_id, body)
+
+
+@router.post("/{reservation_id}/cancel", responses=CHANGE_ERRORS)
+async def cancel_reservation(
+    reservation_id: ReservationId, body: ReservationCancel, service: CancelService
+) -> ReservationView:
+    """confirmed -> cancelled, with a reason. A room assigned in advance is released."""
+    return await service.cancel(reservation_id, body)
+
+
+@router.post("/{reservation_id}/no-show", responses=CHANGE_ERRORS)
+async def mark_no_show(
+    reservation_id: ReservationId, body: ReservationNoShow, service: CancelService
+) -> ReservationView:
+    """confirmed -> no_show, on or after the arrival day."""
+    return await service.mark_no_show(reservation_id, body)
 
 
 @router.post("/{reservation_id}/check-in", responses=ERRORS)

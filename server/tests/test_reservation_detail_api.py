@@ -54,6 +54,7 @@ async def test_reservation_detail(
     assert response.status_code == 200
     body = response.json()
     assert body.pop("created_at")
+    assert body.pop("history") == []  # made outside the app: no audit entries
     assert body == {
         "id": reservation.id,
         "confirmation_code": "ABC23456",

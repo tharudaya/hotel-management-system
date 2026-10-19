@@ -33,6 +33,10 @@ ACCESS: dict[tuple[str, str], str] = {
     ("POST", "/api/guests"): P.RESERVATION_CREATE,
     ("PATCH", "/api/guests/{guest_id}"): P.RESERVATION_CREATE,
     ("GET", "/api/reservations/{reservation_id}"): P.RESERVATION_VIEW,
+    ("GET", "/api/reservations/by-code/{confirmation_code}"): P.RESERVATION_VIEW,
+    ("PATCH", "/api/reservations/{reservation_id}"): P.RESERVATION_MODIFY,
+    ("POST", "/api/reservations/{reservation_id}/cancel"): P.RESERVATION_CANCEL,
+    ("POST", "/api/reservations/{reservation_id}/no-show"): P.RESERVATION_CANCEL,
     ("POST", "/api/reservations/{reservation_id}/check-in"): P.RESERVATION_CHECK_IN,
     ("POST", "/api/reservations/{reservation_id}/check-out"): P.RESERVATION_CHECK_OUT,
     ("PATCH", "/api/rooms/{room_id}/housekeeping-status"): P.ROOM_UPDATE_HOUSEKEEPING_STATUS,
@@ -94,6 +98,7 @@ def concrete(path: str) -> str:
         .replace("{role_id}", "999999")
         .replace("{room_type_id}", "999999")
         .replace("{guest_id}", "999999")
+        .replace("{confirmation_code}", "ABCD2345")
         .replace("{token}", "x" * 43)
     )
 
