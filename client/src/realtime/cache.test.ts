@@ -5,6 +5,7 @@ import type { DashboardRoom, DashboardRooms, DashboardSummary } from '../api/typ
 import { dashboardKeys } from '../dashboard/queries'
 import { BUSINESS_DATE, fixtureRoom, ROOMS, SUMMARY } from '../test/fixtures'
 import { applyEvents } from './cache'
+import { parseServerMessage } from './protocol'
 import type { RealtimeEvent } from './protocol'
 
 let queryClient: QueryClient
@@ -88,11 +89,44 @@ describe('applyEvents', () => {
     expect(cachedRooms()).toEqual(ROOMS)
   })
 
+  it('leaves the caches alone for reservation changes (no resync)', () => {
+    const { needsResync } = applyEvents(queryClient, [
+      { type: 'reservation_changed', seq: 1, payload: { property_id: 1, reservation_id: 42 } },
+    ])
+
+    expect(needsResync).toBe(false)
+    expect(cachedRooms()).toBe(ROOMS)
+  })
+
   it('does nothing before the snapshot has loaded', () => {
     const empty = new QueryClient()
 
     applyEvents(empty, [roomEvent({ ...fixtureRoom(1), version: 2 })])
 
     expect(empty.getQueryData(dashboardKeys.rooms)).toBeUndefined()
+  })
+})
+
+describe('parseServerMessage: reservation_changed', () => {
+  it('keeps the ids and drops everything else', () => {
+    const message = parseServerMessage(
+      JSON.stringify({
+        type: 'reservation_changed',
+        seq: 7,
+        payload: { property_id: 1, reservation_id: 42, change: 'created', status: 'confirmed' },
+      }),
+    )
+
+    expect(message).toEqual({
+      type: 'reservation_changed',
+      seq: 7,
+      payload: { property_id: 1, reservation_id: 42 },
+    })
+  })
+
+  it('rejects a malformed payload', () => {
+    const text = JSON.stringify({ type: 'reservation_changed', seq: 7, payload: {} })
+
+    expect(parseServerMessage(text)).toBeNull()
   })
 })

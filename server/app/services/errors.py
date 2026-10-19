@@ -1,5 +1,6 @@
 """Domain errors raised by services. The API layer maps them to HTTP responses."""
 
+from datetime import date
 from typing import ClassVar
 
 
@@ -16,9 +17,26 @@ class DomainError(Exception):
         self.message = message
         self.code = code or self.default_code
 
+    def extra(self) -> dict[str, object]:
+        """Fields added to the error response next to detail and code (JSON-ready)."""
+        return {}
+
 
 class NotFoundError(DomainError):
     default_code = "not_found"
+
+
+class NoAvailabilityError(DomainError):
+    """Some nights of the stay have no free room of the type: HTTP 409."""
+
+    default_code = "no_availability"
+
+    def __init__(self, message: str, *, unavailable_nights: list[date]) -> None:
+        super().__init__(message)
+        self.unavailable_nights = unavailable_nights
+
+    def extra(self) -> dict[str, object]:
+        return {"unavailable_nights": [night.isoformat() for night in self.unavailable_nights]}
 
 
 class InvalidTransitionError(DomainError):

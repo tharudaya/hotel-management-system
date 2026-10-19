@@ -177,7 +177,7 @@ async def test_filter_by_dates_in_the_property_time_zone(
     "params",
     [
         {"action": "user.exploded"},
-        {"target_type": "guest"},
+        {"target_type": "spaceship"},
         {"date_from": "2026-10-12", "date_to": "2026-10-11"},
         {"date_from": "yesterday"},
         {"limit": 0},

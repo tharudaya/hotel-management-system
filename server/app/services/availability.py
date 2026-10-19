@@ -17,8 +17,9 @@ For each active room type that fits the party, and each night of the stay:
 The stay's availability is the smallest free(night), never below 0. Everything is
 computed in one query: the nights are a VALUES list joined to the counts.
 
-Callers that write (booking, modification) must hold the room type row lock while they
-check and write, so concurrent bookings cannot oversell; this module only reads.
+Callers that write (booking, modification, room setup changes that take a room away
+from a type) must hold the room type row lock (`lock_room_type`) while they check and
+write, so concurrent changes cannot oversell.
 """
 
 from dataclasses import dataclass
@@ -37,12 +38,28 @@ from app.models import (
     RoomType,
 )
 from app.schemas.availability import Availability, NightlyRate, RoomTypeAvailability
+from app.services.errors import NotFoundError
 from app.services.stays import stay_nights, validate_stay
 
 ACTIVE_STATUSES: tuple[ReservationStatus, ...] = (
     ReservationStatus.CONFIRMED,
     ReservationStatus.CHECKED_IN,
 )
+
+
+async def lock_room_type(db: AsyncSession, property_id: int, room_type_id: int) -> RoomType:
+    """Load the room type with a row lock (SELECT ... FOR UPDATE) held until the
+    transaction ends. Every change to a type's bookings or sellable rooms takes it
+    first, so availability checked under the lock stays true until commit."""
+    room_type = await db.scalar(
+        select(RoomType)
+        .where(RoomType.id == room_type_id, RoomType.property_id == property_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if room_type is None:
+        raise NotFoundError(f"Room type {room_type_id} not found", code="room_type_not_found")
+    return room_type
 
 
 @dataclass
@@ -72,9 +89,14 @@ class AvailabilityService:
             children=children,
         )
         nights = stay_nights(check_in_date, check_out_date)
+        per_night = self._free_rows(property_id, nights, exclude_reservation_id).subquery()
         rows = (
             await self.db.execute(
-                self._query(property_id, nights, adults + children, exclude_reservation_id)
+                select(RoomType, func.min(per_night.c.free))
+                .join(per_night, per_night.c.room_type_id == RoomType.id)
+                .where(RoomType.is_active, RoomType.max_occupancy >= adults + children)
+                .group_by(RoomType.id)
+                .order_by(RoomType.name)
             )
         ).all()
         return Availability(
@@ -103,13 +125,36 @@ class AvailabilityService:
             ],
         )
 
-    def _query(
+    async def free_rooms_by_night(
         self,
         property_id: int,
         nights: list[date],
-        guests: int,
+        *,
+        room_type_ids: list[int] | None = None,
+        exclude_reservation_id: int | None = None,
+    ) -> dict[int, dict[date, int]]:
+        """Free rooms per room type and night (negative when oversold), in one query.
+        No validation: callers pass the nights they care about."""
+        if not nights:
+            return {}
+        rows = (
+            await self.db.execute(
+                self._free_rows(property_id, nights, exclude_reservation_id, room_type_ids)
+            )
+        ).all()
+        result: dict[int, dict[date, int]] = {}
+        for room_type_id, night, free in rows:
+            result.setdefault(room_type_id, {})[night] = free
+        return result
+
+    def _free_rows(
+        self,
+        property_id: int,
+        nights: list[date],
         exclude_reservation_id: int | None,
-    ) -> Select[RoomType, int]:
+        room_type_ids: list[int] | None = None,
+    ) -> Select[int, date, int]:
+        """(room_type_id, night, free) for each room type of the property and night."""
         today = self.today
 
         def night_list(name: str) -> Values:
@@ -130,13 +175,15 @@ class AvailabilityService:
             # Prefilter (ix_reservations_availability, and the status index for overstays).
             or_(
                 func.daterange(Reservation.check_in_date, Reservation.check_out_date).op("&&")(
-                    func.daterange(nights[0], nights[-1], "[]")
+                    func.daterange(min(nights), max(nights), "[]")
                 ),
                 overstay,
             ),
         ]
         if exclude_reservation_id is not None:
             booked_filter.append(Reservation.id != exclude_reservation_id)
+        if room_type_ids is not None:
+            booked_filter.append(Reservation.room_type_id.in_(room_type_ids))
         booked = (
             select(
                 Reservation.room_type_id.label("room_type_id"),
@@ -173,27 +220,28 @@ class AvailabilityService:
             .subquery("rooms")
         )
 
-        stay_nights_list = night_list("stay_nights")
-        stay_night = stay_nights_list.c.night
+        all_nights = night_list("stay_nights")
+        stay_night = all_nights.c.night
         free = (
             func.coalesce(rooms.c.sellable, 0)
             - case((stay_night == today, func.coalesce(rooms.c.out_of_order, 0)), else_=0)
             - func.coalesce(booked.c.booked, 0)
         )
-        return (
-            select(RoomType, func.min(free).label("free"))
+        stmt = (
+            select(
+                RoomType.id.label("room_type_id"),
+                stay_night.label("night"),
+                free.label("free"),
+            )
             .select_from(RoomType)
-            .join(stay_nights_list, true())
+            .join(all_nights, true())
             .outerjoin(rooms, rooms.c.room_type_id == RoomType.id)
             .outerjoin(
                 booked,
                 and_(booked.c.room_type_id == RoomType.id, booked.c.night == stay_night),
             )
-            .where(
-                RoomType.property_id == property_id,
-                RoomType.is_active,
-                RoomType.max_occupancy >= guests,
-            )
-            .group_by(RoomType.id)
-            .order_by(RoomType.name)
+            .where(RoomType.property_id == property_id)
         )
+        if room_type_ids is not None:
+            stmt = stmt.where(RoomType.id.in_(room_type_ids))
+        return stmt

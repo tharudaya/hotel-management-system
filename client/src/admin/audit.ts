@@ -5,7 +5,8 @@
  */
 import type { AuditActionName, AuditEntry } from '../api/types'
 
-export type ActionGroup = 'Sign-in' | 'Users' | 'Roles' | 'Room setup' | 'Front desk'
+export type ActionGroup =
+  'Sign-in' | 'Users' | 'Roles' | 'Room setup' | 'Front desk' | 'Reservations'
 
 export const ACTIONS: Record<AuditActionName, { label: string; group: ActionGroup }> = {
   'auth.login_succeeded': { label: 'Signed in', group: 'Sign-in' },
@@ -28,6 +29,9 @@ export const ACTIONS: Record<AuditActionName, { label: string; group: ActionGrou
   'role.created': { label: 'Role created', group: 'Roles' },
   'role.updated': { label: 'Role changed', group: 'Roles' },
   'role.deleted': { label: 'Role deleted', group: 'Roles' },
+  'reservation.created': { label: 'Reservation made', group: 'Reservations' },
+  'guest.created': { label: 'Guest added', group: 'Reservations' },
+  'guest.updated': { label: 'Guest details changed', group: 'Reservations' },
   'reservation.checked_in': { label: 'Checked in', group: 'Front desk' },
   'reservation.checked_out': { label: 'Checked out', group: 'Front desk' },
   'room.housekeeping_status_changed': { label: 'Housekeeping status changed', group: 'Front desk' },

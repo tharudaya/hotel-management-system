@@ -18,10 +18,12 @@ from app.api.router import api_router
 from app.api.routes import realtime
 from app.core.config import Settings, get_settings
 from app.core.email import create_email_sender
+from app.core.log_redaction import install_access_log_redaction
 from app.core.security_middleware import SecurityMiddleware
 from app.db.session import create_engine, create_session_factory
 from app.realtime.bus import EventBus
 from app.realtime.hub import ConnectionManager
+from app.services import idempotency
 from app.services.errors import (
     DomainError,
     GoneError,
@@ -38,8 +40,9 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 
 async def _sweep_forever(app: FastAPI, interval_seconds: int) -> None:
-    """Expired-users sweep (services/expiry.py) every interval; errors are logged and
-    the loop goes on, so a database blip does not stop it for good."""
+    """Expired-users sweep (services/expiry.py) and idempotency key cleanup every
+    interval; errors are logged and the loop goes on, so a database blip does not stop
+    it for good."""
     while True:
         await asyncio.sleep(interval_seconds)
         try:
@@ -53,11 +56,17 @@ async def _sweep_forever(app: FastAPI, interval_seconds: int) -> None:
                 )
         except Exception:
             logger.exception("Expired-users sweep failed")
+        try:
+            async with app.state.session_factory() as db:
+                await idempotency.delete_expired(db)
+        except Exception:
+            logger.exception("Idempotency key cleanup failed")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     logging.basicConfig(level=settings.log_level)
+    install_access_log_redaction()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -142,6 +151,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         else:
             status_code = status.HTTP_409_CONFLICT
-        return JSONResponse({"detail": exc.message, "code": exc.code}, status_code=status_code)
+        return JSONResponse(
+            {"detail": exc.message, "code": exc.code, **exc.extra()}, status_code=status_code
+        )
 
     return app

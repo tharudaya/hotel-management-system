@@ -37,7 +37,9 @@ from app.models import (
     AuditEvent,
     AuditEventType,
     AuditLog,
+    Guest,
     Property,
+    Reservation,
     Role,
     Room,
     RoomType,
@@ -238,6 +240,18 @@ async def _target_labels(db: AsyncSession, rows: Sequence[Any]) -> dict[tuple[st
             "room_type",
             select(RoomType.id, RoomType.code + " " + RoomType.name).where(
                 RoomType.id.in_(_ids(rows, "room_type"))
+            ),
+        ),
+        (
+            "reservation",
+            select(Reservation.id, Reservation.confirmation_code).where(
+                Reservation.id.in_(_ids(rows, "reservation"))
+            ),
+        ),
+        (
+            "guest",
+            select(Guest.id, Guest.first_name + " " + Guest.last_name).where(
+                Guest.id.in_(_ids(rows, "guest"))
             ),
         ),
     ]

@@ -299,7 +299,7 @@ describe('audit log filters', () => {
 
   it('ignores unknown values in the URL', async () => {
     const fetchMock = api({ [key()]: () => [200, page(ALL)] })
-    renderApp('/admin/audit?action=user.exploded&target_type=guest&from=yesterday')
+    renderApp('/admin/audit?action=user.exploded&target_type=spaceship&from=yesterday')
 
     await screen.findByRole('table')
     expect(auditRequests(fetchMock)).toEqual(['/api/admin/audit?limit=50'])

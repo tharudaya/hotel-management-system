@@ -14,6 +14,7 @@ from app.models.base import Base
 class AuditAction(StrEnum):
     """What changed. Stored as plain strings, so new actions need no migration."""
 
+    RESERVATION_CREATED = "reservation.created"
     RESERVATION_CHECKED_IN = "reservation.checked_in"
     RESERVATION_CHECKED_OUT = "reservation.checked_out"
     ROOM_HOUSEKEEPING_STATUS_CHANGED = "room.housekeeping_status_changed"
@@ -25,6 +26,8 @@ class AuditAction(StrEnum):
     ROOM_TYPE_UPDATED = "room_type.updated"
     ROOM_TYPE_RETIRED = "room_type.retired"
     ROOM_TYPE_REACTIVATED = "room_type.reactivated"
+    GUEST_CREATED = "guest.created"
+    GUEST_UPDATED = "guest.updated"
     USER_CREATED = "user.created"
     USER_UPDATED = "user.updated"
     USER_ROLE_CHANGED = "user.role_changed"

@@ -52,10 +52,13 @@ async def test_reservation_detail(
     response = await client.get(f"/api/reservations/{reservation.id}")
 
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    assert body.pop("created_at")
+    assert body == {
         "id": reservation.id,
         "confirmation_code": "ABC23456",
         "status": "checked_in",
+        "source": "phone",
         "check_in_date": "2026-03-08",
         "check_out_date": "2026-03-11",
         "nights": 3,
@@ -63,16 +66,27 @@ async def test_reservation_detail(
         "children": 1,
         "is_vip": True,
         "notes": "Late checkout requested",
+        "room_type_id": reservation.room_type_id,
         "room_type": "STD",
         "room_type_name": "Standard",
         "room_id": reservation.room_id,
         "room_number": "304",
         "guest": {
+            "id": reservation.guest_id,
             "first_name": "Ada",
             "last_name": "Lovelace",
             "email": "ada@example.com",
             "phone": "+1-555-0100",
+            "contact_hidden": False,
         },
+        "nightly_rates": [
+            {"night_date": "2026-03-08", "rate_minor": 100_000},
+            {"night_date": "2026-03-09", "rate_minor": 100_000},
+            {"night_date": "2026-03-10", "rate_minor": 100_000},
+        ],
+        "total_minor": 300_000,
+        "currency": "SEK",
+        "version": 1,
     }
 
 
@@ -156,4 +170,11 @@ async def test_contact_details_need_guest_view_contact(
 
     guest = (await client.get(f"/api/reservations/{reservation.id}")).json()["guest"]
 
-    assert guest == {"first_name": "Ada", "last_name": "Lovelace", "email": None, "phone": None}
+    assert guest == {
+        "id": reservation.guest_id,
+        "first_name": "Ada",
+        "last_name": "Lovelace",
+        "email": None,
+        "phone": None,
+        "contact_hidden": True,
+    }

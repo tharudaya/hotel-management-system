@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from app.models import ReservationStatus
 from app.schemas.dashboard import DashboardRoom, DashboardSummary
 
 
@@ -29,6 +30,21 @@ class RoomSetupChanged(BaseModel):
 
     type: Literal["room_setup_changed"] = "room_setup_changed"
     property_id: int
+
+
+class ReservationChanged(BaseModel):
+    """A reservation was created or changed. Broadcast to every dashboard, so it carries
+    no guest data: clients refetch the reservation (and lists) over REST, where
+    permissions apply."""
+
+    type: Literal["reservation_changed"] = "reservation_changed"
+    property_id: int
+    reservation_id: int
+    change: Literal["created", "updated", "cancelled", "no_show"]
+    status: ReservationStatus
+    room_type_id: int
+    check_in_date: date
+    check_out_date: date
 
 
 class SessionEnded(BaseModel):
@@ -60,11 +76,16 @@ class PermissionsChanged(BaseModel):
 
 
 type DomainEvent = (
-    RoomStatusChanged | SummaryChanged | RoomSetupChanged | SessionEnded | PermissionsChanged
+    RoomStatusChanged
+    | SummaryChanged
+    | RoomSetupChanged
+    | ReservationChanged
+    | SessionEnded
+    | PermissionsChanged
 )
 
 # Events that connected dashboards receive.
-type BroadcastEvent = RoomStatusChanged | SummaryChanged | RoomSetupChanged
+type BroadcastEvent = RoomStatusChanged | SummaryChanged | RoomSetupChanged | ReservationChanged
 
 
 def broadcast_payload(event: BroadcastEvent) -> dict[str, Any]:

@@ -7,6 +7,10 @@ Rules:
   reservation is assigned to it.
 - A room type cannot be retired while it has active rooms or upcoming reservations.
 - A room's type cannot be changed while a guest is checked in to that room.
+- A room cannot be retired or moved to another type if its current type would then
+  have fewer sellable rooms than bookings on any night from today on (409
+  would_oversell, naming the first such night). Both take the room type row lock, as
+  bookings do, so a booking and a retirement cannot both slip through.
 - Rooms cannot be put in (or reactivated with) a retired room type.
 - Room numbers and room type codes are trimmed and stored upper-case, so they are
   unique per property regardless of case; room type names are unique ignoring case.
@@ -20,7 +24,7 @@ today) plus guests in house.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import ColumnElement, and_, case, func, or_, select
@@ -53,6 +57,11 @@ from app.schemas.room_setup import (
     UserRef,
 )
 from app.services.audit import ClientInfo, record_change
+from app.services.availability import (
+    ACTIVE_STATUSES,
+    AvailabilityService,
+    lock_room_type,
+)
 from app.services.errors import (
     DomainError,
     InvalidTransitionError,
@@ -266,12 +275,17 @@ class RoomSetupService:
         before: dict[str, object] = {f: getattr(room, f) for f in changes}
         after: dict[str, object] = dict(changes)
         if "room_type_id" in changes:
+            # Taking the room away from its type: serialise with bookings of that type.
+            await lock_room_type(self.db, self.property_id, room.room_type_id)
             if (await self._room_use([room.id]))[room.id].guest_in_house:
                 raise DomainError(
                     f"Room {room.number} has a guest checked in, so its room type cannot "
                     "change. Try again after check-out.",
                     code="room_in_use",
                 )
+            oversell = (await self._oversell_blocked([room]))[room.id]
+            if oversell:
+                raise DomainError(oversell, code="would_oversell")
             new_type = await self._active_type(int(str(changes["room_type_id"])))
             old_type = await self.db.get(RoomType, room.room_type_id)
             before["room_type_code"] = old_type.code if old_type else None
@@ -291,9 +305,14 @@ class RoomSetupService:
         self._ensure_version(room, version)
         if not room.is_active:
             raise InvalidTransitionError(f"Room {room.number} is already retired.")
+        # The type loses a sellable room: serialise with bookings of that type.
+        await lock_room_type(self.db, self.property_id, room.room_type_id)
         reason = self._room_retire_blocked(room, (await self._room_use([room.id]))[room.id])
         if reason:
             raise DomainError(reason, code="room_in_use")
+        oversell = (await self._oversell_blocked([room]))[room.id]
+        if oversell:
+            raise DomainError(oversell, code="would_oversell")
         now = datetime.now(UTC)
         room.is_active = False
         room.retired_at = now
@@ -375,6 +394,51 @@ class RoomSetupService:
                 "assigned. Move them to another room first."
             )
         return None
+
+    async def _oversell_blocked(self, rooms: list[Room]) -> dict[int, str | None]:
+        """Per room: why taking it from its room type would oversell, or None.
+
+        Looks at every night from today to the last booked night of the type. Tonight a
+        room that is out of order is already not sellable, so removing it costs
+        nothing then. One query for the horizon, one for the counts."""
+        result: dict[int, str | None] = {room.id: None for room in rooms}
+        active = [room for room in rooms if room.is_active]
+        if not active:
+            return result
+        type_ids = sorted({room.room_type_id for room in active})
+        last_check_out = await self.db.scalar(
+            select(func.max(Reservation.check_out_date)).where(
+                Reservation.property_id == self.property_id,
+                Reservation.room_type_id.in_(type_ids),
+                Reservation.status.in_(ACTIVE_STATUSES),
+            )
+        )
+        if last_check_out is None:
+            return result
+        # Tonight at least: an overstaying guest's check-out date may be in the past.
+        end = max(last_check_out, self.today + timedelta(days=1))
+        nights = [self.today + timedelta(days=i) for i in range((end - self.today).days)]
+        free = await AvailabilityService(self.db, self.today).free_rooms_by_night(
+            self.property_id, nights, room_type_ids=type_ids
+        )
+        codes = {
+            t.id: t.code
+            for t in await self.db.scalars(select(RoomType).where(RoomType.id.in_(type_ids)))
+        }
+        for room in active:
+            per_night = free.get(room.room_type_id, {})
+            out_of_order = room.housekeeping_status is HousekeepingStatus.OUT_OF_ORDER
+            for night in nights:
+                cost = 0 if night == self.today and out_of_order else 1
+                if per_night.get(night, 0) < cost:
+                    code = codes[room.room_type_id]
+                    result[room.id] = (
+                        f"Room type {code} is fully booked on {night.isoformat()}; without "
+                        f"room {room.number} it would be oversold. Move or cancel a {code} "
+                        "booking for that night first."
+                    )
+                    break
+        return result
 
     async def _type_counts(self, type_ids: list[int]) -> tuple[dict[int, int], dict[int, int]]:
         """(active rooms, upcoming reservations) per room type."""
@@ -534,6 +598,7 @@ class RoomSetupService:
             else {}
         )
         use = await self._room_use([room.id for room in rooms])
+        oversell = await self._oversell_blocked(rooms)
         out: list[RoomOut] = []
         for room in rooms:
             room_type = types[room.room_type_id]
@@ -564,12 +629,14 @@ class RoomSetupService:
                     guest_in_house=room_use.guest_in_house,
                     upcoming_reservations=room_use.upcoming,
                     retire_blocked=(
-                        self._room_retire_blocked(room, room_use) if room.is_active else None
+                        (self._room_retire_blocked(room, room_use) or oversell[room.id])
+                        if room.is_active
+                        else None
                     ),
                     type_change_blocked=(
                         f"Room {room.number} has a guest checked in."
                         if room_use.guest_in_house
-                        else None
+                        else oversell[room.id]
                     ),
                     version=room.version,
                     created_at=room.created_at,

@@ -7,6 +7,7 @@ export const TARGET_TYPES: readonly TargetType[] = [
   'user',
   'role',
   'reservation',
+  'guest',
   'room',
   'room_type',
 ]
@@ -14,6 +15,7 @@ export const TARGET_LABELS: Record<TargetType, string> = {
   user: 'User',
   role: 'Role',
   reservation: 'Reservation',
+  guest: 'Guest',
   room: 'Room',
   room_type: 'Room type',
 }

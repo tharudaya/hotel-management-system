@@ -40,7 +40,14 @@ function dashboardApi(extra: Record<string, Handler> = {}, user: object = FRONT_
       200,
       makeReservation({
         id: 11,
-        guest: { first_name: 'Ada', last_name: 'Lovelace', email: null, phone: null },
+        guest: {
+          id: 8,
+          first_name: 'Ada',
+          last_name: 'Lovelace',
+          email: null,
+          phone: null,
+          contact_hidden: true,
+        },
       }),
     ],
     ...extra,

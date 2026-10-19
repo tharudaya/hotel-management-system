@@ -36,6 +36,9 @@ export function applyEvents(
       })
     } else if (event.type === 'summary_changed') {
       latestSummary = event.payload.summary
+    } else if (event.type === 'reservation_changed') {
+      // Nothing to patch: the caller invalidates the reservation queries for every
+      // batch, and room or summary changes come as their own events.
     } else {
       // room_setup_changed: rooms may have appeared, vanished or moved; patching
       // cannot express that, so refetch the snapshot.

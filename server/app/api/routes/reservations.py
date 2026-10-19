@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi import APIRouter, Depends, Header, Path, Query, Response, status
 
 from app.api.deps import (
     ClientInfoDep,
@@ -13,12 +13,18 @@ from app.api.deps import (
 from app.core.permissions import P
 from app.db.session import SessionDep
 from app.models import User
-from app.schemas.actions import CheckInRequest, CheckOutRequest, ErrorResponse
+from app.schemas.actions import (
+    CheckInRequest,
+    CheckOutRequest,
+    ErrorResponse,
+    NoAvailabilityResponse,
+)
 from app.schemas.availability import Availability, AvailabilityQuery
 from app.schemas.dashboard import DashboardRoom
-from app.schemas.reservations import ReservationDetail
+from app.schemas.reservations import ReservationCreate, ReservationDetail
 from app.services import reservations as reservation_service
 from app.services.availability import AvailabilityService
+from app.services.reservations import ReservationService
 
 router: APIRouter = APIRouter(prefix="/reservations", tags=["reservations"])
 
@@ -27,10 +33,52 @@ BookingUser = Annotated[User, Depends(require_permission(P.RESERVATION_CREATE))]
 CheckInUser = Annotated[User, Depends(require_permission(P.RESERVATION_CHECK_IN))]
 CheckOutUser = Annotated[User, Depends(require_permission(P.RESERVATION_CHECK_OUT))]
 ReservationId = Annotated[int, Path(gt=0)]
+# Random per booking attempt (e.g. a UUID), reused only to retry that same attempt.
+IdempotencyKeyHeader = Annotated[
+    str,
+    Header(alias="Idempotency-Key", min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$"),
+]
 ERRORS: dict[int | str, dict[str, object]] = {
     status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
     status.HTTP_409_CONFLICT: {"model": ErrorResponse},
 }
+
+
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+        status.HTTP_409_CONFLICT: {"model": NoAvailabilityResponse},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": ErrorResponse},
+    },
+)
+async def create_reservation(
+    body: ReservationCreate,
+    idempotency_key: IdempotencyKeyHeader,
+    response: Response,
+    db: SessionDep,
+    bus: EventBusDep,
+    user: BookingUser,
+    property_id: CurrentPropertyId,
+    client: ClientInfoDep,
+    today: HotelTodayDep,
+    permissions: CurrentPermissions,
+) -> ReservationDetail:
+    """Book a stay (status confirmed, no room yet) for an existing or a new guest.
+
+    Retrying with the same Idempotency-Key and body returns the original reservation
+    (header Idempotent-Replayed: true) instead of booking again; the same key with a
+    different body is 422 idempotency_key_reused. 409 no_availability lists the full
+    nights in unavailable_nights. A nightly_rate_minor other than the base rate needs
+    reservation.override_rate (403 rate_override_not_allowed).
+    """
+    detail, replayed = await ReservationService(
+        db, bus, user, property_id, client, today, permissions
+    ).create(body, idempotency_key)
+    if replayed:
+        response.headers["Idempotent-Replayed"] = "true"
+    return detail
 
 
 # Declared before /{reservation_id}, which would otherwise match "availability".

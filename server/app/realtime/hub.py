@@ -9,16 +9,20 @@ Wire protocol (server -> client only; the socket never accepts writes):
     summary_changed      payload {"summary": <dashboard summary>}
     room_setup_changed   payload {"property_id"}: rooms or room types were added,
                          edited, retired or reactivated; refetch rooms and summary
+    reservation_changed  payload {"property_id", "reservation_id", "change"
+                         (created|updated|cancelled|no_show), "status",
+                         "room_type_id", "check_in_date", "check_out_date"}: no guest
+                         data; refetch reservations (and availability) over REST
     ping                 heartbeat; payload {}
     permissions_changed  this user's permissions (or access) changed and they still
                          have dashboard access; payload {}. Refetch /api/auth/me and
                          anything whose content depends on permissions.
 
 `seq` increases by one for every broadcast event (room_status_changed,
-summary_changed, room_setup_changed). hello, ping and permissions_changed carry the latest seq
-without consuming one (permissions_changed goes only to the affected users),
-so a client that sees a jump has missed events and should refetch over REST.
-Clients connect first, then fetch the REST snapshot, then apply events.
+summary_changed, room_setup_changed, reservation_changed). hello, ping and
+permissions_changed carry the latest seq without consuming one (permissions_changed
+goes only to the affected users), so a client that sees a jump has missed events and
+should refetch over REST. Clients connect first, then fetch the REST snapshot, then apply events.
 
 The only message a client may send is {"type": "pong"}, in reply to ping;
 anything else is ignored.

@@ -41,9 +41,22 @@ export interface RoomSetupChangedMessage {
   payload: { property_id: number }
 }
 
+/**
+ * A reservation was created or changed. No guest data: refetch reservations over REST
+ * (every event batch already invalidates the reservation queries).
+ */
+export interface ReservationChangedMessage {
+  type: 'reservation_changed'
+  seq: number
+  payload: { property_id: number; reservation_id: number }
+}
+
 /** Broadcast events: the only messages that consume a sequence number. */
 export type RealtimeEvent =
-  RoomStatusChangedMessage | SummaryChangedMessage | RoomSetupChangedMessage
+  | RoomStatusChangedMessage
+  | SummaryChangedMessage
+  | RoomSetupChangedMessage
+  | ReservationChangedMessage
 
 export type ServerMessage = HelloMessage | PingMessage | PermissionsChangedMessage | RealtimeEvent
 
@@ -95,6 +108,19 @@ export function parseServerMessage(text: string): ServerMessage | null {
     case 'room_setup_changed':
       if (isRecord(payload) && typeof payload.property_id === 'number') {
         return { type, seq, payload: { property_id: payload.property_id } }
+      }
+      return null
+    case 'reservation_changed':
+      if (
+        isRecord(payload) &&
+        typeof payload.property_id === 'number' &&
+        typeof payload.reservation_id === 'number'
+      ) {
+        return {
+          type,
+          seq,
+          payload: { property_id: payload.property_id, reservation_id: payload.reservation_id },
+        }
       }
       return null
     default:

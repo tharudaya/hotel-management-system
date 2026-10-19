@@ -1,3 +1,5 @@
+from datetime import date
+
 from pydantic import BaseModel, Field
 
 from app.models import HousekeepingStatus
@@ -21,3 +23,9 @@ class HousekeepingStatusUpdate(BaseModel):
 class ErrorResponse(BaseModel):
     detail: str
     code: str
+
+
+class NoAvailabilityResponse(ErrorResponse):
+    """409 no_availability: the nights with no free room of the type."""
+
+    unavailable_nights: list[date] | None = None
