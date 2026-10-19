@@ -1,7 +1,8 @@
 import { Star } from 'lucide-react'
+import { Link } from 'react-router'
 
 import type { ReservationDetail } from '../api/types'
-import { buttonSecondary } from '../components/styles'
+import { buttonSecondary, focusRing } from '../components/styles'
 import { formatDate, plural } from '../lib/format'
 import { useReservation } from './queries'
 
@@ -71,6 +72,12 @@ function Details({ reservation: r }: { reservation: ReservationDetail }) {
         <dt className="text-slate-500">Phone</dt>
         <dd className="text-slate-900">{r.guest.phone ?? '—'}</dd>
       </dl>
+      <Link
+        to={`/reservations/${r.id}`}
+        className={`inline-block rounded-sm text-sm font-medium text-sky-800 hover:underline ${focusRing}`}
+      >
+        Open reservation {r.confirmation_code}
+      </Link>
       {r.notes && (
         <div className="rounded-md bg-yellow-50 px-3 py-2 text-sm text-yellow-900">
           <span className="font-medium">Notes: </span>

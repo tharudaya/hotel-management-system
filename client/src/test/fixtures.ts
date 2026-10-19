@@ -1,4 +1,9 @@
-import type { DashboardRoom, DashboardSummary, ReservationDetail } from '../api/types'
+import type {
+  DashboardRoom,
+  DashboardSummary,
+  ReservationDetail,
+  ReservationView,
+} from '../api/types'
 
 export const BUSINESS_DATE = '2026-10-12'
 
@@ -138,6 +143,11 @@ export function makeReservation(overrides: Partial<ReservationDetail> = {}): Res
     created_at: '2026-10-01T10:00:00Z',
     ...overrides,
   }
+}
+
+/** A reservation as GET /api/reservations/{id} returns it (with its history). */
+export function makeReservationView(overrides: Partial<ReservationView> = {}): ReservationView {
+  return { ...makeReservation(), history: [], ...overrides }
 }
 
 /** A fixture room by id (throws if the fixture set changes underneath a test). */

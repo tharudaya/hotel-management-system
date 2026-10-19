@@ -25,13 +25,16 @@ from app.schemas.reservations import (
     ReservationCancel,
     ReservationCreate,
     ReservationDetail,
+    ReservationListQuery,
     ReservationNoShow,
+    ReservationPage,
     ReservationUpdate,
     ReservationView,
     RoomAssignment,
     RoomUnassignment,
     WalkInCreate,
 )
+from app.services import reservation_list as list_service
 from app.services import reservations as reservation_service
 from app.services.availability import AvailabilityService
 from app.services.reservations import ReservationService
@@ -223,6 +226,19 @@ async def get_availability(
     return await AvailabilityService(db, today).available_by_room_type(
         property_id, query.check_in, query.check_out, query.adults, query.children
     )
+
+
+@router.get("")
+async def list_reservations(
+    query: Annotated[ReservationListQuery, Query()],
+    db: SessionDep,
+    user: ReservationViewer,
+    property_id: CurrentPropertyId,
+    today: HotelTodayDep,
+) -> ReservationPage:
+    """Search (confirmation code or guest name), filter by status, dates or one of
+    today's views, sort and page. Guest names only; no contact details."""
+    return await list_service.list_reservations(db, query, property_id=property_id, today=today)
 
 
 @router.get(

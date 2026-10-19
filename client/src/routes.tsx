@@ -20,6 +20,9 @@ import { DashboardPage } from './pages/DashboardPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { LoginPage } from './pages/LoginPage'
 import { SetPasswordPage } from './pages/SetPasswordPage'
+import { NewReservationPage } from './reservations/NewReservationPage'
+import { ReservationDetailPage } from './reservations/ReservationDetailPage'
+import { ReservationsListPage } from './reservations/ReservationsListPage'
 
 /** The route table, shared by the browser router (main.tsx) and tests (memory router). */
 export const routes: RouteObject[] = [
@@ -40,6 +43,22 @@ export const routes: RouteObject[] = [
             element: <AppLayout />,
             children: [
               { index: true, element: <DashboardPage /> },
+              {
+                path: '/reservations',
+                element: <RequirePermission permission={P.RESERVATION_VIEW} />,
+                children: [
+                  { index: true, element: <ReservationsListPage /> },
+                  {
+                    path: 'new',
+                    element: (
+                      <RequirePermission permission={P.RESERVATION_CREATE}>
+                        <NewReservationPage />
+                      </RequirePermission>
+                    ),
+                  },
+                  { path: ':reservationId', element: <ReservationDetailPage /> },
+                ],
+              },
               {
                 path: '/admin',
                 element: (

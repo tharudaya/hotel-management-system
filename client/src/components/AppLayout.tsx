@@ -60,6 +60,7 @@ export function AppLayout() {
           </div>
           <MainNav
             dashboard={can(user, P.DASHBOARD_VIEW)}
+            reservations={can(user, P.RESERVATION_VIEW)}
             admin={canAny(user, ...ADMIN_PERMISSIONS)}
           />
           <div className="ml-auto flex items-center gap-3 sm:gap-4">
@@ -98,8 +99,16 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   }`
 
 /** Header links, each shown only with the permission behind it. */
-function MainNav({ dashboard, admin }: { dashboard: boolean; admin: boolean }) {
-  if (!dashboard && !admin) return null
+function MainNav({
+  dashboard,
+  reservations,
+  admin,
+}: {
+  dashboard: boolean
+  reservations: boolean
+  admin: boolean
+}) {
+  if (!dashboard && !reservations && !admin) return null
   return (
     <nav aria-label="Main">
       <ul className="flex gap-1">
@@ -107,6 +116,13 @@ function MainNav({ dashboard, admin }: { dashboard: boolean; admin: boolean }) {
           <li>
             <NavLink to="/" end className={navLinkClass}>
               Dashboard
+            </NavLink>
+          </li>
+        )}
+        {reservations && (
+          <li>
+            <NavLink to="/reservations" className={navLinkClass}>
+              Reservations
             </NavLink>
           </li>
         )}

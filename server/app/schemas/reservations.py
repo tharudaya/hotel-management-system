@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
@@ -189,3 +189,69 @@ class RoomUnassignment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: int = Field(ge=1)
+
+
+ReservationSort = Literal[
+    "check_in_date",
+    "-check_in_date",
+    "check_out_date",
+    "-check_out_date",
+    "guest",
+    "-guest",
+    "confirmation_code",
+    "-confirmation_code",
+    "created_at",
+    "-created_at",
+]
+# Today's front desk views, by the hotel's business date (as the dashboard counts them).
+FrontDeskView = Literal["arriving_today", "departing_today", "in_house"]
+
+
+class ReservationListQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    q: Annotated[str | None, Field(max_length=100)] = Field(
+        default=None, description="Confirmation code (or its start), or words of the guest's name"
+    )
+    status: list[ReservationStatus] | None = None
+    # With date_from/date_to (inclusive): arriving = check-in in the range, departing =
+    # check-out in the range, staying = at least one night in the range.
+    dates: Literal["arriving", "departing", "staying"] = "staying"
+    date_from: date | None = None
+    date_to: date | None = None
+    view: FrontDeskView | None = None
+    sort: ReservationSort = "check_in_date"
+    page: Annotated[int, Field(ge=1)] = 1
+    page_size: Annotated[int, Field(ge=1, le=100)] = 25
+
+    @model_validator(mode="after")
+    def _range_in_order(self) -> Self:
+        if self.date_from and self.date_to and self.date_from > self.date_to:
+            raise ValueError("date_from must not be after date_to")
+        return self
+
+
+class ReservationListItem(BaseModel):
+    id: int
+    confirmation_code: str
+    guest_name: str
+    check_in_date: date
+    check_out_date: date
+    nights: int
+    adults: int
+    children: int
+    room_type: str
+    room_type_name: str
+    room_number: str | None
+    status: ReservationStatus
+    source: ReservationSource
+    is_vip: bool
+    total_minor: int
+    currency: str
+
+
+class ReservationPage(BaseModel):
+    items: list[ReservationListItem]
+    total: int
+    page: int
+    page_size: int

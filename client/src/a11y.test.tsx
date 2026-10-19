@@ -401,3 +401,65 @@ describe('keyboard', () => {
     })
   })
 })
+
+describe('accessibility (axe): reservations', () => {
+  it('reservations list, detail, a dialog, and the dashboard arrivals list', async () => {
+    const item = {
+      id: 13,
+      confirmation_code: 'KX7M2P9Q',
+      guest_name: 'Alan Turing',
+      check_in_date: '2026-10-12',
+      check_out_date: '2026-10-14',
+      nights: 2,
+      adults: 1,
+      children: 0,
+      room_type: 'STD',
+      room_type_name: 'Standard Queen',
+      room_number: null,
+      status: 'confirmed',
+      source: 'phone',
+      is_vip: true,
+      total_minor: 259_800,
+      currency: 'SEK',
+    }
+    mockApi({
+      'GET /api/auth/me': () => [200, MANAGER],
+      ...dashboardHandlers(),
+      'GET /api/reservations?sort=check_in_date&page=1&page_size=25': () => [
+        200,
+        { items: [item], total: 1, page: 1, page_size: 25 },
+      ],
+      'GET /api/reservations/13': () => [
+        200,
+        {
+          ...makeReservation({ status: 'confirmed', check_in_date: '2026-10-12' }),
+          history: [
+            {
+              action: 'reservation.created',
+              occurred_at: '2026-10-01T08:00:00Z',
+              actor: { id: 1, full_name: 'Fran Desk' },
+              status_before: null,
+              status_after: 'confirmed',
+              changed: ['status'],
+              reason: null,
+            },
+          ],
+        },
+      ],
+    })
+    const router = renderApp('/reservations')
+    const user = userEvent.setup()
+
+    await screen.findByRole('link', { name: /Alan Turing/ })
+    await expectNoViolations()
+
+    await user.click(screen.getByRole('link', { name: /Alan Turing/ }))
+    await screen.findByRole('region', { name: 'History' })
+    expect(router.state.location.pathname).toBe('/reservations/13')
+    await expectNoViolations()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel booking' }))
+    await screen.findByRole('dialog', { name: /Cancel Alan Turing's booking/ })
+    await expectNoViolations()
+  })
+})

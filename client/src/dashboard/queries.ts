@@ -7,7 +7,7 @@ import type {
   DashboardSummary,
   HotelInfo,
   HousekeepingStatus,
-  ReservationDetail,
+  ReservationView,
 } from '../api/types'
 
 export const dashboardKeys = {
@@ -50,8 +50,7 @@ export function useHotelInfo() {
 export function useReservation(id: number | null) {
   return useQuery({
     queryKey: reservationKeys.detail(id ?? 0),
-    queryFn: ({ signal }) =>
-      apiFetch<ReservationDetail>(`/api/reservations/${id ?? 0}`, { signal }),
+    queryFn: ({ signal }) => apiFetch<ReservationView>(`/api/reservations/${id ?? 0}`, { signal }),
     enabled: id !== null,
   })
 }

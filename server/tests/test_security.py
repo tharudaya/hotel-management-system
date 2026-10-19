@@ -29,6 +29,7 @@ ACCESS: dict[tuple[str, str], str | frozenset[str]] = {
     ("GET", "/api/hotel"): SIGNED_IN,
     ("GET", "/api/dashboard/rooms"): P.DASHBOARD_VIEW,
     ("GET", "/api/dashboard/summary"): P.DASHBOARD_VIEW,
+    ("GET", "/api/reservations"): P.RESERVATION_VIEW,
     ("GET", "/api/reservations/availability"): P.RESERVATION_CREATE,
     ("POST", "/api/reservations"): P.RESERVATION_CREATE,
     ("GET", "/api/guests"): P.GUEST_VIEW,

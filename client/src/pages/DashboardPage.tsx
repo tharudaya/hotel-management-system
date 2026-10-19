@@ -12,6 +12,7 @@ import {
   type QuickView,
   type RoomFilters,
 } from '../dashboard/filters'
+import { ArrivalsList } from '../dashboard/ArrivalsList'
 import { FilterBar } from '../dashboard/FilterBar'
 import { useRooms, useSummary } from '../dashboard/queries'
 import { RoomDetailPanel } from '../dashboard/RoomDetailPanel'
@@ -127,6 +128,12 @@ function Dashboard() {
           >
             Loading today's summary…
           </p>
+        )}
+        {summary.data && (
+          <ArrivalsList
+            arrivals={summary.data.arrivals}
+            businessDate={summary.data.business_date}
+          />
         )}
         <FilterBar rooms={allRooms} filters={filters} onChange={setFilters} />
         <p role="status" className="text-sm text-slate-600">

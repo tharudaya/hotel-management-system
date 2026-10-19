@@ -235,7 +235,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List Reservations
+         * @description Search (confirmation code or guest name), filter by status, dates or one of
+         *     today's views, sort and page. Guest names only; no contact details.
+         */
+        get: operations["list_reservations_api_reservations_get"];
         put?: never;
         /**
          * Create Reservation
@@ -1546,12 +1551,62 @@ export interface components {
             /** Reason */
             reason: string | null;
         };
+        /** ReservationListItem */
+        ReservationListItem: {
+            /** Id */
+            id: number;
+            /** Confirmation Code */
+            confirmation_code: string;
+            /** Guest Name */
+            guest_name: string;
+            /**
+             * Check In Date
+             * Format: date
+             */
+            check_in_date: string;
+            /**
+             * Check Out Date
+             * Format: date
+             */
+            check_out_date: string;
+            /** Nights */
+            nights: number;
+            /** Adults */
+            adults: number;
+            /** Children */
+            children: number;
+            /** Room Type */
+            room_type: string;
+            /** Room Type Name */
+            room_type_name: string;
+            /** Room Number */
+            room_number: string | null;
+            status: components["schemas"]["ReservationStatus"];
+            source: components["schemas"]["ReservationSource"];
+            /** Is Vip */
+            is_vip: boolean;
+            /** Total Minor */
+            total_minor: number;
+            /** Currency */
+            currency: string;
+        };
         /** ReservationNoShow */
         ReservationNoShow: {
             /** Version */
             version: number;
             /** Reason */
             reason?: string | null;
+        };
+        /** ReservationPage */
+        ReservationPage: {
+            /** Items */
+            items: components["schemas"]["ReservationListItem"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
         };
         /**
          * ReservationSource
@@ -2623,6 +2678,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HotelInfo"];
+                };
+            };
+        };
+    };
+    list_reservations_api_reservations_get: {
+        parameters: {
+            query?: {
+                /** @description Confirmation code (or its start), or words of the guest's name */
+                q?: string | null;
+                status?: components["schemas"]["ReservationStatus"][] | null;
+                dates?: "arriving" | "departing" | "staying";
+                date_from?: string | null;
+                date_to?: string | null;
+                view?: ("arriving_today" | "departing_today" | "in_house") | null;
+                sort?: "check_in_date" | "-check_in_date" | "check_out_date" | "-check_out_date" | "guest" | "-guest" | "confirmation_code" | "-confirmation_code" | "created_at" | "-created_at";
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReservationPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

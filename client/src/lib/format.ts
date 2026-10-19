@@ -39,3 +39,28 @@ export function formatDateTime(iso: string, timeZone: string): string {
   }
   return format.format(new Date(iso))
 }
+
+const moneyFormats = new Map<string, Intl.NumberFormat>()
+
+/**
+ * Format an amount in minor units (öre, cents) of `currency`: 129900, "SEK" ->
+ * "SEK 1,299.00". Amounts stay integers everywhere else; dividing happens only here,
+ * for display.
+ */
+export function formatMoney(minor: number, currency: string): string {
+  let format = moneyFormats.get(currency)
+  if (!format) {
+    format = new Intl.NumberFormat('en-GB', { style: 'currency', currency })
+    moneyFormats.set(currency, format)
+  }
+  const digits = format.resolvedOptions().maximumFractionDigits ?? 2
+  return format.format(minor / 10 ** digits)
+}
+
+/** "1299" or "1299.50" in major units -> minor units, without float arithmetic. */
+export function parseAmount(text: string): number | null {
+  const match = /^\s*(\d{1,9})(?:[.,](\d{1,2}))?\s*$/.exec(text)
+  if (!match) return null
+  const [, whole = '0', fraction = ''] = match
+  return Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
+}
