@@ -18,6 +18,7 @@ export const P = {
   RESERVATION_CREATE: 'reservation.create',
   RESERVATION_MODIFY: 'reservation.modify',
   RESERVATION_CANCEL: 'reservation.cancel',
+  RESERVATION_OVERRIDE_RATE: 'reservation.override_rate',
   RESERVATION_CHECK_IN: 'reservation.check_in',
   RESERVATION_CHECK_OUT: 'reservation.check_out',
   GUEST_VIEW: 'guest.view',

@@ -9,7 +9,6 @@ from app.api.deps import get_hotel_today
 from app.core.config import Settings
 from app.core.permissions import P
 from app.models import (
-    Guest,
     Reservation,
     ReservationStatus,
     Role,
@@ -20,18 +19,17 @@ from app.models import (
 )
 from app.services.permissions import get_default_property_id
 from tests.conftest import USERNAME_FOR_ROLE, LoginAs, MakeUser, Roles
+from tests.factories import new_guest, new_reservation
 
 
 @pytest.fixture
 async def reservation(db_session: AsyncSession) -> Reservation:
     pid = await get_default_property_id(db_session)
     std = RoomType(property_id=pid, code="STD", name="Standard", max_occupancy=3)
-    reservation = Reservation(
-        confirmation_code="ABC123",
-        guest=Guest(
-            first_name="Ada", last_name="Lovelace", email="ada@example.com", phone="+1-555-0100"
-        ),
-        room_type=std,
+    reservation = new_reservation(
+        std,
+        confirmation_code="ABC23456",
+        guest=new_guest(pid, "Ada", "Lovelace", email="ada@example.com", phone="+1-555-0100"),
         room=Room(property_id=pid, number="304", floor=3, room_type=std),
         check_in_date=date(2026, 3, 8),
         check_out_date=date(2026, 3, 11),
@@ -56,7 +54,7 @@ async def test_reservation_detail(
     assert response.status_code == 200
     assert response.json() == {
         "id": reservation.id,
-        "confirmation_code": "ABC123",
+        "confirmation_code": "ABC23456",
         "status": "checked_in",
         "check_in_date": "2026-03-08",
         "check_out_date": "2026-03-11",
@@ -83,6 +81,7 @@ async def test_reservation_detail_without_room(
 ) -> None:
     await login_as(Roles.GENERAL_MANAGER)
     reservation.status = ReservationStatus.CONFIRMED
+    reservation.checked_in_at = None
     reservation.room = None
     await db_session.flush()
 

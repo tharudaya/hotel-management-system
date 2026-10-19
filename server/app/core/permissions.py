@@ -34,7 +34,8 @@ class P:
     RESERVATION_VIEW: Final = "reservation.view"
     RESERVATION_CREATE: Final = "reservation.create"
     RESERVATION_MODIFY: Final = "reservation.modify"
-    RESERVATION_CANCEL: Final = "reservation.cancel"
+    RESERVATION_CANCEL: Final = "reservation.cancel"  # also marks no-shows
+    RESERVATION_OVERRIDE_RATE: Final = "reservation.override_rate"
     RESERVATION_CHECK_IN: Final = "reservation.check_in"
     RESERVATION_CHECK_OUT: Final = "reservation.check_out"
     GUEST_VIEW: Final = "guest.view"
@@ -58,7 +59,12 @@ PERMISSIONS: Final[tuple[Permission, ...]] = (
     Permission(P.RESERVATION_VIEW, "View reservations", "reservations"),
     Permission(P.RESERVATION_CREATE, "Create reservations", "reservations"),
     Permission(P.RESERVATION_MODIFY, "Change reservations", "reservations"),
-    Permission(P.RESERVATION_CANCEL, "Cancel reservations", "reservations"),
+    Permission(P.RESERVATION_CANCEL, "Cancel reservations and mark no-shows", "reservations"),
+    Permission(
+        P.RESERVATION_OVERRIDE_RATE,
+        "Change the nightly price from the room type default",
+        "reservations",
+    ),
     Permission(P.RESERVATION_CHECK_IN, "Check guests in", "reservations"),
     Permission(P.RESERVATION_CHECK_OUT, "Check guests out", "reservations"),
     Permission(P.GUEST_VIEW, "View guest profiles", "guests"),

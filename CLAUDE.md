@@ -139,6 +139,37 @@ Implementation notes:
   - A room's type cannot be changed while a guest is checked in to that room.
   - Every change (create, edit, retire, reactivate) is written to the audit log with `before`/`after`, like other data changes.
 
+### Reservations
+- Scope: reservations made by staff (phone, email, walk-in): availability search per room type for a date range; create, modify and cancel reservations, mark no-shows; find or create guests, with privacy rules; reservation list, booking form and detail screens; integration with check-in, check-out, the dashboard and room setup. Out of scope for now: online booking by guests, payments, pricing rules, channel managers, overbooking on purpose.
+- Rules:
+  - A stay is a range of nights: `check_in_date` inclusive, `check_out_date` exclusive, plain dates in the property time zone.
+  - Reservations sell a room type; a physical room is assigned later (at the latest at check-in).
+  - No overbooking: for every night of a stay, booked rooms of a type must not exceed active, sellable rooms of that type.
+  - Availability checks and writes happen in one transaction, serialised per room type with a row lock on the room type, so concurrent bookings cannot oversell.
+  - A database exclusion constraint prevents the same physical room being assigned to overlapping stays.
+  - Prices are snapshotted per night on the reservation at booking time, stored as integer minor units with a currency code, never floats.
+  - Reservation creation is idempotent using a client-generated idempotency key.
+  - Reservations use optimistic locking (version column); conflicts return 409.
+  - Status transitions: `confirmed` -> `checked_in` -> `checked_out`; `confirmed` -> `cancelled`; `confirmed` -> `no_show`. Nothing else.
+  - Reservations are never deleted.
+  - Guest contact details are only returned to users with `guest.view_contact` and are never written to application logs.
+  - Every change is written to the audit log and publishes an event for the realtime hub.
+- Decisions:
+  - Reservations and guests belong to a property. `reservations.property_id` is enforced through composite foreign keys `(room_type_id|room_id|guest_id, property_id)` to `room_types|rooms|guests (id, property_id)`, so all four belong to one property.
+  - Sellable rooms of a type for a night = active rooms of that type; rooms that are `out_of_order` now are subtracted for tonight only (out of order has no dates).
+  - Availability always counts guests in house, including overstays whose `check_out_date` has passed. An early check-out shortens `check_out_date` to today (and drops the unused nights), so the remaining nights become sellable.
+  - The starting price is the room type's `base_rate_minor`; changing a night's price needs `reservation.override_rate` (Admin, General manager, Front office manager). No-shows use `reservation.cancel`.
+  - Audit rows record that guest contact details changed (field names), never their values.
+- Data model (migration b5345677901f):
+  - `properties.currency` (ISO 4217, default SEK), `max_stay_nights` (30), `booking_horizon_days` (730). `room_types.base_rate_minor` (default 0 = not set yet).
+  - `reservations`: `source` (`phone|email|walk_in|other`), `total_minor` (BigInteger, sum of the nights) + `currency` (the property's at booking), `version` (SQLAlchemy `version_id_col`), `created_by`, `checked_in_at`, `checked_out_at`, `cancelled_at`/`cancelled_by`/`cancellation_reason` (also used for no-shows). Check constraints make each status timestamp present exactly when the status says so; set them in the same change as the status.
+  - `reservation_nights` (PK `reservation_id, night_date`, `rate_minor`): one row per night of `[check_in_date, check_out_date)`; keep them and `total_minor` in step whenever dates or prices change.
+  - Confirmation codes: `app/core/confirmation_codes.new_confirmation_code()` (8 random characters from `23456789ABCDEFGHJKMNPQRSTUVWXYZ`, format checked in the database, unique across properties; retry on a unique violation).
+  - Guests: emails stored trimmed and lower-case (checked); generated columns `phone_digits` (digits only) and `search_text` (lower-case name, email and phone digits, GIN trigram index for `ILIKE '%term%'`; needs `pg_trgm`). Never write a guest's email or phone to logs (`Guest.__repr__` shows only the id).
+  - `idempotency_keys` (unique `key, user_id`; `endpoint`, `request_hash`, `response_reference` like `reservation:42`), written in the same transaction as the record created; rows older than 24 h may be deleted.
+  - Availability uses the GiST index `ix_reservations_availability` (`property_id, room_type_id, daterange`) over confirmed and checked-in stays.
+  - Tests build guests and reservations with `tests/factories.py` (`new_guest`, `new_reservation`), which fill nights, totals, codes and status timestamps.
+
 ## Conventions
 
 - **Library versions:** use the current stable version of every library. Check the official docs for the installed version rather than assuming APIs from memory, especially for SQLAlchemy 2.x, Pydantic v2, TanStack Query, React Router and Tailwind, whose APIs have changed across major versions.

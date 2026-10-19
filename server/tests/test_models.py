@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.models import (
-    Guest,
     HousekeepingStatus,
     Property,
     Reservation,
@@ -19,6 +18,7 @@ from app.models import (
     User,
 )
 from app.services.permissions import get_default_property_id
+from tests.factories import new_reservation
 
 TODAY: date = date(2026, 1, 15)
 
@@ -48,10 +48,10 @@ def make_reservation(
 ) -> Reservation:
     resolved_type = room_type if room_type is not None else room.room_type if room else None
     assert resolved_type is not None
-    return Reservation(
+    return new_reservation(
+        resolved_type,
         confirmation_code=code,
-        guest=Guest(first_name="Test", last_name="Guest"),
-        room_type=resolved_type,
+        first_name="Test",
         room=room,
         check_in_date=TODAY + timedelta(days=check_in),
         check_out_date=TODAY + timedelta(days=check_out),
@@ -67,7 +67,7 @@ async def assert_rejected(session: AsyncSession, obj: object, constraint: str) -
 
 
 async def test_defaults(db_session: AsyncSession, room: Room) -> None:
-    reservation = make_reservation(room, code="A1")
+    reservation = make_reservation(room, code="AAAA2222")
     db_session.add(reservation)
     await db_session.flush()
     await db_session.refresh(reservation)
@@ -83,7 +83,7 @@ async def test_defaults(db_session: AsyncSession, room: Room) -> None:
 async def test_check_out_must_be_after_check_in(db_session: AsyncSession, room: Room) -> None:
     await assert_rejected(
         db_session,
-        make_reservation(room, code="A1", check_in=2, check_out=2),
+        make_reservation(room, code="AAAA2222", check_in=2, check_out=2),
         "ck_reservations_check_out_after_check_in",
     )
 
@@ -91,12 +91,12 @@ async def test_check_out_must_be_after_check_in(db_session: AsyncSession, room: 
 async def test_overlapping_active_reservations_on_same_room_rejected(
     db_session: AsyncSession, room: Room
 ) -> None:
-    db_session.add(make_reservation(room, code="A1", check_in=0, check_out=3))
+    db_session.add(make_reservation(room, code="AAAA2222", check_in=0, check_out=3))
     await db_session.flush()
 
     await assert_rejected(
         db_session,
-        make_reservation(room, code="A2", check_in=2, check_out=4),
+        make_reservation(room, code="AAAA2223", check_in=2, check_out=4),
         "ex_reservations_room_no_overlap",
     )
 
@@ -106,12 +106,12 @@ async def test_back_to_back_and_inactive_reservations_may_share_room(
 ) -> None:
     db_session.add_all(
         [
-            make_reservation(room, code="A1", check_in=0, check_out=3),
+            make_reservation(room, code="AAAA2222", check_in=0, check_out=3),
             # Arrives the day the first one leaves: [0, 3) and [3, 5) don't overlap.
-            make_reservation(room, code="A2", check_in=3, check_out=5),
+            make_reservation(room, code="AAAA2223", check_in=3, check_out=5),
             # Cancelled stays don't hold the room.
             make_reservation(
-                room, code="A3", check_in=1, check_out=2, status=ReservationStatus.CANCELLED
+                room, code="AAAA2224", check_in=1, check_out=2, status=ReservationStatus.CANCELLED
             ),
         ]
     )
@@ -122,7 +122,7 @@ async def test_checked_in_requires_room(db_session: AsyncSession, room: Room) ->
     await assert_rejected(
         db_session,
         make_reservation(
-            None, code="A1", status=ReservationStatus.CHECKED_IN, room_type=room.room_type
+            None, code="AAAA2222", status=ReservationStatus.CHECKED_IN, room_type=room.room_type
         ),
         "ck_reservations_in_house_has_room",
     )
@@ -132,25 +132,25 @@ async def test_only_one_party_in_house_per_room(db_session: AsyncSession, room: 
     # An overstay: the first party's dates have passed but they are still in house.
     db_session.add(
         make_reservation(
-            room, code="A1", check_in=-3, check_out=-1, status=ReservationStatus.CHECKED_IN
+            room, code="AAAA2222", check_in=-3, check_out=-1, status=ReservationStatus.CHECKED_IN
         )
     )
     await db_session.flush()
 
     await assert_rejected(
         db_session,
-        make_reservation(room, code="A2", status=ReservationStatus.CHECKED_IN),
+        make_reservation(room, code="AAAA2223", status=ReservationStatus.CHECKED_IN),
         "uq_reservations_room_in_house",
     )
 
 
 async def test_confirmation_code_unique(db_session: AsyncSession, room: Room) -> None:
-    db_session.add(make_reservation(room, code="A1", check_in=0, check_out=1))
+    db_session.add(make_reservation(room, code="AAAA2222", check_in=0, check_out=1))
     await db_session.flush()
 
     await assert_rejected(
         db_session,
-        make_reservation(room, code="A1", check_in=5, check_out=6),
+        make_reservation(room, code="AAAA2222", check_in=5, check_out=6),
         "uq_reservations_confirmation_code",
     )
 

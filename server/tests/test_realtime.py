@@ -23,9 +23,7 @@ from app.core.config import Settings
 from app.core.permissions import P
 from app.main import create_app
 from app.models import (
-    Guest,
     HousekeepingStatus,
-    Reservation,
     ReservationStatus,
     Role,
     RolePermission,
@@ -46,6 +44,7 @@ from tests.conftest import (
     live_clients,
     role_id,
 )
+from tests.factories import new_reservation
 
 TODAY: date = date(2026, 3, 10)
 WS_URL: str = "https://test/ws"
@@ -80,10 +79,8 @@ async def seeded(live_db: async_sessionmaker[AsyncSession]) -> dict[str, int]:
             room_type=std,
             housekeeping_status=HousekeepingStatus.DIRTY,
         )
-        guest = Reservation(
-            confirmation_code="INHOUSE",
-            guest=Guest(first_name="Ada", last_name="Guest"),
-            room_type=std,
+        guest = new_reservation(
+            std,
             room=room_101,
             check_in_date=TODAY - timedelta(days=2),
             check_out_date=TODAY,

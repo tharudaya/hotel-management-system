@@ -15,7 +15,6 @@ from app.api.deps import get_hotel_today
 from app.models import (
     AuditAction,
     AuditLog,
-    Guest,
     HousekeepingStatus,
     Reservation,
     ReservationStatus,
@@ -25,6 +24,7 @@ from app.models import (
 from app.realtime.events import DomainEvent, RoomStatusChanged, SummaryChanged
 from app.services.permissions import get_default_property_id
 from tests.conftest import LoginAs, Roles
+from tests.factories import new_reservation
 
 TODAY: date = date(2026, 3, 10)
 HK = HousekeepingStatus
@@ -97,10 +97,9 @@ async def hotel(db_session: AsyncSession, fixed_today: None) -> Hotel:
     def reservation(
         code: str, room: str | None, check_in: int, check_out: int, status: ReservationStatus
     ) -> Reservation:
-        return Reservation(
-            confirmation_code=code,
-            guest=Guest(first_name=code.title(), last_name="Guest"),
-            room_type=std,
+        return new_reservation(
+            std,
+            first_name=code.title(),
             room=rooms[room] if room else None,
             check_in_date=TODAY + timedelta(days=check_in),
             check_out_date=TODAY + timedelta(days=check_out),
@@ -208,7 +207,7 @@ async def test_check_in_to_pre_assigned_room(
         "status": "checked_in",
         "room_id": room.id,
         "room_number": "101",
-        "confirmation_code": "arrival",
+        "confirmation_code": arrival.confirmation_code,
     }
 
     room_evt, summary_evt = published

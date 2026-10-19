@@ -14,8 +14,10 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_hotel_today
-from app.models import Guest, Reservation, ReservationStatus
+from app.models import ReservationStatus
+from app.services.permissions import get_default_property_id
 from tests.conftest import MakeUser, Roles
+from tests.factories import new_reservation
 
 TODAY = date(2026, 3, 10)
 
@@ -82,10 +84,9 @@ async def test_room_setup_and_the_front_desk(
     assert {t["room_type"] for t in tiles.values()} == {"STD", "DLX"}
 
     # --- a guest arrives for a Standard room ---------------------------------------
-    stay = Reservation(
-        confirmation_code="ARRIVE",
-        guest=Guest(first_name="Ada", last_name="Guest"),
-        room_type_id=std["id"],
+    stay = new_reservation(
+        std["id"],
+        property_id=await get_default_property_id(db_session),
         check_in_date=TODAY,
         check_out_date=TODAY + timedelta(days=2),
     )
@@ -195,10 +196,10 @@ async def test_upcoming_reservation_type_cannot_be_retired_and_keeps_a_room(
         )
     ).json()
     db_session.add(
-        Reservation(
-            confirmation_code="LATER",
-            guest=Guest(first_name="Bo", last_name="Guest"),
-            room_type_id=fam["id"],
+        new_reservation(
+            fam["id"],
+            property_id=await get_default_property_id(db_session),
+            first_name="Bo",
             check_in_date=TODAY + timedelta(days=30),
             check_out_date=TODAY + timedelta(days=33),
             status=ReservationStatus.CONFIRMED,

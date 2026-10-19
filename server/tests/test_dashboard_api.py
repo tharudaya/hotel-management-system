@@ -11,9 +11,7 @@ from app.api.deps import get_hotel_today
 from app.core.clock import hotel_today
 from app.core.config import Settings
 from app.models import (
-    Guest,
     HousekeepingStatus,
-    Reservation,
     ReservationStatus,
     Room,
     RoomType,
@@ -21,6 +19,7 @@ from app.models import (
 from app.services.dashboard import get_dashboard_rooms, get_dashboard_summary
 from app.services.permissions import get_default_property_id
 from tests.conftest import LoginAs, Roles
+from tests.factories import new_reservation
 
 ROOMS: str = "/api/dashboard/rooms"
 SUMMARY: str = "/api/dashboard/summary"
@@ -78,10 +77,9 @@ async def hotel(db_session: AsyncSession) -> dict[str, Room]:
         children: int = 0,
     ) -> None:
         db_session.add(
-            Reservation(
-                confirmation_code=f"C-{first_name}",
-                guest=Guest(first_name=first_name, last_name="Guest"),
-                room_type=std,
+            new_reservation(
+                std,
+                first_name=first_name,
                 room=rooms[room] if room else None,
                 check_in_date=TODAY + timedelta(days=check_in),
                 check_out_date=TODAY + timedelta(days=check_out),

@@ -3,9 +3,11 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Identity,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -21,11 +23,23 @@ class Property(Base):
     """A hotel. Roles and role assignments are per property."""
 
     __tablename__ = "properties"
+    __table_args__ = (
+        CheckConstraint("currency ~ '^[A-Z]{3}$'", name="currency_iso_code"),
+        CheckConstraint("max_stay_nights BETWEEN 1 AND 365", name="max_stay_nights_range"),
+        CheckConstraint(
+            "booking_horizon_days BETWEEN 1 AND 1825", name="booking_horizon_days_range"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
     # IANA zone, e.g. "Europe/Stockholm".
     time_zone: Mapped[str] = mapped_column(String(64))
+    # ISO 4217 code; prices are integer minor units of this currency (öre for SEK).
+    currency: Mapped[str] = mapped_column(String(3), server_default="SEK")
+    # Booking limits: longest stay, and how far ahead a stay may start.
+    max_stay_nights: Mapped[int] = mapped_column(SmallInteger, server_default="30")
+    booking_horizon_days: Mapped[int] = mapped_column(SmallInteger, server_default="730")
 
     def __repr__(self) -> str:
         return f"<Property {self.name!r}>"

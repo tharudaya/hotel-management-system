@@ -278,7 +278,8 @@ def login_as(client: AsyncClient, make_user: MakeUser) -> LoginAs:
 
 # Properties, roles and permissions come from the migration and are kept.
 ALL_TABLES: str = (
-    "audit_events, sessions, user_property_roles, reservations, guests, rooms, room_types, users"
+    "audit_events, sessions, user_property_roles, idempotency_keys, reservation_nights, "
+    "reservations, guests, rooms, room_types, users"
 )
 
 

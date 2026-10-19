@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -168,6 +168,7 @@ async def check_in(
     previous_room_id = reservation.room_id
     room_number = room.number  # read now: a failed commit expires loaded objects
     reservation.status = ReservationStatus.CHECKED_IN
+    reservation.checked_in_at = func.now()
     reservation.room_id = room.id
     touch(room)
     record_change(
@@ -226,6 +227,7 @@ async def check_out(
     housekeeping_before = room.housekeeping_status
 
     reservation.status = ReservationStatus.CHECKED_OUT
+    reservation.checked_out_at = func.now()
     room.housekeeping_status = HousekeepingStatus.DIRTY
     touch(room)  # bumps the version even if the room was already dirty
     record_change(

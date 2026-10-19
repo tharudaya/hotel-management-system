@@ -28,6 +28,7 @@ class RoomType(TimestampMixin, Base):
     __tablename__ = "room_types"
     __table_args__ = (
         CheckConstraint("max_occupancy > 0", name="max_occupancy_positive"),
+        CheckConstraint("base_rate_minor >= 0", name="base_rate_non_negative"),
         UniqueConstraint("property_id", "code", name="uq_room_types_property_id_code"),
         UniqueConstraint("property_id", "name", name="uq_room_types_property_id_name"),
         # Target of rooms' (room_type_id, property_id) foreign key, so a room can only
@@ -43,6 +44,9 @@ class RoomType(TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text)
     # e.g. "1 king" or "2 singles"
     bed_setup: Mapped[str | None] = mapped_column(String(100))
+    # Default price per night in minor units of the property currency; bookings
+    # snapshot it per night (reservation_nights), so changing it never reprices them.
+    base_rate_minor: Mapped[int] = mapped_column(server_default="0")
     is_active: Mapped[bool] = mapped_column(default=True, server_default=true())
 
     def __repr__(self) -> str:
@@ -66,6 +70,8 @@ class Room(Base):
             name="retired_consistent",
         ),
         UniqueConstraint("property_id", "number", name="uq_rooms_property_id_number"),
+        # Target of reservations' (room_id, property_id) foreign key.
+        UniqueConstraint("id", "property_id", name="uq_rooms_id_property_id"),
         ForeignKeyConstraint(
             ["room_type_id", "property_id"],
             ["room_types.id", "room_types.property_id"],

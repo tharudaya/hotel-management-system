@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_hotel_today
 from app.models import (
     AuditLog,
-    Guest,
     HousekeepingStatus,
     Property,
     Reservation,
@@ -23,6 +22,7 @@ from app.models import (
 from app.realtime.events import DomainEvent, RoomSetupChanged
 from app.services.permissions import get_default_property_id
 from tests.conftest import LoginAs, Roles
+from tests.factories import new_reservation
 
 TODAY = date(2026, 3, 10)
 TODAY_DT = datetime(2026, 3, 9, 12, tzinfo=UTC)  # a retirement moment before "today"
@@ -83,13 +83,13 @@ async def book(
     room: Room | None = None,
     status: ReservationStatus = ReservationStatus.CONFIRMED,
     nights: tuple[int, int] = (2, 4),
-    code: str = "R1",
+    code: str | None = None,
 ) -> Reservation:
-    reservation = Reservation(
+    reservation = new_reservation(
+        room_type.id,
+        property_id=room_type.property_id,
         confirmation_code=code,
-        guest=Guest(first_name="Ada", last_name="Guest"),
-        room_type_id=room_type.id,
-        room_id=room.id if room else None,
+        room=room.id if room else None,
         check_in_date=TODAY + timedelta(days=nights[0]),
         check_out_date=TODAY + timedelta(days=nights[1]),
         status=status,
@@ -412,8 +412,8 @@ async def test_room_entries_explain_what_is_blocked(
     booked = await make_room(db_session, "102", std)
     await make_room(db_session, "103", std)
     await book(db_session, std, room=occupied, status=ReservationStatus.CHECKED_IN, nights=(-1, 2))
-    await book(db_session, std, room=booked, code="R2")
-    await book(db_session, std, room=booked, code="R3", nights=(5, 6))
+    await book(db_session, std, room=booked)
+    await book(db_session, std, room=booked, nights=(5, 6))
 
     rooms = {r["number"]: r for r in (await client.get(ROOMS)).json()}
 

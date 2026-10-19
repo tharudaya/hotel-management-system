@@ -43,7 +43,7 @@ async def role_keys(db: AsyncSession, role_name: str) -> set[str]:
 
 def test_catalog_keys_are_unique_and_grouped() -> None:
     keys = [p.key for p in PERMISSIONS]
-    assert len(keys) == len(set(keys)) == 21
+    assert len(keys) == len(set(keys)) == 22
     assert all(p.group and p.description for p in PERMISSIONS)
 
 

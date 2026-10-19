@@ -17,3 +17,13 @@ class ReservationStatus(StrEnum):
     CHECKED_OUT = "checked_out"
     CANCELLED = "cancelled"
     NO_SHOW = "no_show"
+
+
+@unique
+class ReservationSource(StrEnum):
+    """How the booking reached the hotel."""
+
+    PHONE = "phone"
+    EMAIL = "email"
+    WALK_IN = "walk_in"
+    OTHER = "other"

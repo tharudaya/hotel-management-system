@@ -8,9 +8,10 @@ from app.models.access import Permission, Property, Role, RolePermission, UserPr
 from app.models.audit import AuditAction, AuditLog
 from app.models.auth import AuditEvent, AuditEventType, UserSession
 from app.models.base import Base
-from app.models.enums import HousekeepingStatus, ReservationStatus
+from app.models.enums import HousekeepingStatus, ReservationSource, ReservationStatus
 from app.models.guest import Guest
-from app.models.reservation import Reservation
+from app.models.idempotency import IdempotencyKey
+from app.models.reservation import Reservation, ReservationNight
 from app.models.room import Room, RoomType
 from app.models.tokens import TokenPurpose, UserToken
 from app.models.user import User
@@ -23,9 +24,12 @@ __all__ = [
     "Base",
     "Guest",
     "HousekeepingStatus",
+    "IdempotencyKey",
     "Permission",
     "Property",
     "Reservation",
+    "ReservationNight",
+    "ReservationSource",
     "ReservationStatus",
     "Role",
     "RolePermission",
