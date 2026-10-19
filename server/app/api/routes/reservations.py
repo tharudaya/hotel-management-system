@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import APIRouter, Depends, Path, Query, status
 
 from app.api.deps import (
     ClientInfoDep,
@@ -14,13 +14,16 @@ from app.core.permissions import P
 from app.db.session import SessionDep
 from app.models import User
 from app.schemas.actions import CheckInRequest, CheckOutRequest, ErrorResponse
+from app.schemas.availability import Availability, AvailabilityQuery
 from app.schemas.dashboard import DashboardRoom
 from app.schemas.reservations import ReservationDetail
 from app.services import reservations as reservation_service
+from app.services.availability import AvailabilityService
 
 router: APIRouter = APIRouter(prefix="/reservations", tags=["reservations"])
 
 ReservationViewer = Annotated[User, Depends(require_permission(P.RESERVATION_VIEW))]
+BookingUser = Annotated[User, Depends(require_permission(P.RESERVATION_CREATE))]
 CheckInUser = Annotated[User, Depends(require_permission(P.RESERVATION_CHECK_IN))]
 CheckOutUser = Annotated[User, Depends(require_permission(P.RESERVATION_CHECK_OUT))]
 ReservationId = Annotated[int, Path(gt=0)]
@@ -28,6 +31,25 @@ ERRORS: dict[int | str, dict[str, object]] = {
     status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
     status.HTTP_409_CONFLICT: {"model": ErrorResponse},
 }
+
+
+# Declared before /{reservation_id}, which would otherwise match "availability".
+@router.get(
+    "/availability", responses={status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": ErrorResponse}}
+)
+async def get_availability(
+    query: Annotated[AvailabilityQuery, Query()],
+    db: SessionDep,
+    user: BookingUser,
+    property_id: CurrentPropertyId,
+    today: HotelTodayDep,
+) -> Availability:
+    """Rooms free on every night of the stay, per room type that fits the party, with the
+    default nightly rates. 422 for a stay the hotel does not take (past, too long, too far
+    ahead)."""
+    return await AvailabilityService(db, today).available_by_room_type(
+        property_id, query.check_in, query.check_out, query.adults, query.children
+    )
 
 
 @router.get("/{reservation_id}", responses={status.HTTP_404_NOT_FOUND: {"model": ErrorResponse}})

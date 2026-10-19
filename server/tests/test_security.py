@@ -26,6 +26,7 @@ ACCESS: dict[tuple[str, str], str] = {
     ("GET", "/api/hotel"): SIGNED_IN,
     ("GET", "/api/dashboard/rooms"): P.DASHBOARD_VIEW,
     ("GET", "/api/dashboard/summary"): P.DASHBOARD_VIEW,
+    ("GET", "/api/reservations/availability"): P.RESERVATION_CREATE,
     ("GET", "/api/reservations/{reservation_id}"): P.RESERVATION_VIEW,
     ("POST", "/api/reservations/{reservation_id}/check-in"): P.RESERVATION_CHECK_IN,
     ("POST", "/api/reservations/{reservation_id}/check-out"): P.RESERVATION_CHECK_OUT,
