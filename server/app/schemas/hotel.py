@@ -8,3 +8,5 @@ class HotelInfo(BaseModel):
     timezone: str
     # Today's date in the hotel's time zone.
     business_date: date
+    # ISO 4217 code of the property's currency; prices are minor units of it.
+    currency: str

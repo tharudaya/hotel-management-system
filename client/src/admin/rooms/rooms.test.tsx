@@ -16,6 +16,7 @@ function roomType(overrides: Partial<RoomTypeOut>): RoomTypeOut {
     max_occupancy: 2,
     bed_setup: '1 queen',
     description: null,
+    base_rate_minor: 129_900,
     is_active: true,
     active_room_count: 2,
     upcoming_reservations: 0,
@@ -34,6 +35,7 @@ const DLX = roomType({
   name: 'Deluxe King',
   max_occupancy: 3,
   bed_setup: '1 king',
+  base_rate_minor: 179_900,
   active_room_count: 0,
   retire_blocked: null,
 })
@@ -413,14 +415,33 @@ describe('room types', () => {
       within(table)
         .getAllByRole('columnheader')
         .map((th) => th.textContent),
-    ).toEqual(['Code', 'Name', 'Max guests', 'Beds', 'Active rooms', 'Status', 'Actions'])
+    ).toEqual([
+      'Code',
+      'Name',
+      'Max guests',
+      'Beds',
+      'Price per night',
+      'Active rooms',
+      'Status',
+      'Actions',
+    ])
     expect(
       within(table)
         .getAllByRole('cell')
-        .slice(0, 5)
-        .map((c) => c.textContent),
-    ).toEqual(['Deluxe King', '3', '1 king', '0', 'Active'])
+        .slice(0, 6)
+        // Money is formatted with a no-break space after the currency.
+        .map((c) => c.textContent.replace(/\s/g, ' ')),
+    ).toEqual(['Deluxe King', '3', '1 king', 'SEK 1,799.00', '0', 'Active'])
     expect(screen.getByRole('link', { name: 'Room types' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('shows a room type without a price as not set', async () => {
+    api(ADMIN_USER, {
+      'GET /api/admin/room-types': () => [200, [roomType({ base_rate_minor: 0 })]],
+    })
+    renderApp('/admin/rooms/types')
+
+    expect(await screen.findByRole('row', { name: /^STD/ })).toHaveTextContent('Not set')
   })
 
   it('shows retired room types on request, in the URL', async () => {
@@ -454,6 +475,12 @@ describe('room types', () => {
     await user.clear(guests)
     await user.type(guests, '4')
     await user.type(within(dialog).getByLabelText(/^Beds/), '2 doubles')
+    // A price is required, in the hotel's currency.
+    await user.click(within(dialog).getByRole('button', { name: 'Add room type' }))
+    const price = within(dialog).getByLabelText('Price per night (SEK)')
+    expect(price).toHaveFocus()
+    expect(price).toHaveAccessibleDescription(/^Enter the price per night, like 1299/)
+    await user.type(price, '1499.50')
     await user.click(within(dialog).getByRole('button', { name: 'Add room type' }))
 
     expect(await screen.findByText('Room type FAM was added.')).toBeInTheDocument()
@@ -464,6 +491,7 @@ describe('room types', () => {
       max_occupancy: 4,
       bed_setup: '2 doubles',
       description: null,
+      base_rate_minor: 149_950,
     })
   })
 
@@ -491,6 +519,7 @@ describe('room types', () => {
 
     await user.clear(guests)
     await user.type(guests, '2')
+    await user.type(within(dialog).getByLabelText('Price per night (SEK)'), '999')
     await user.click(within(dialog).getByRole('button', { name: 'Add room type' }))
     await waitFor(() => {
       expect(within(dialog).getByLabelText('Code')).toHaveAccessibleDescription(

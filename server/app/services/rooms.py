@@ -78,7 +78,7 @@ async def change_housekeeping_status(
     client: ClientInfo,
     today: date,
 ) -> DashboardRoom:
-    room = await load_room(db, room_id)
+    room = await load_room(db, room_id, property_id)
     before = room.housekeeping_status
     # Taking a room out of service, or returning it, is a separate permission.
     if HK.OUT_OF_ORDER in (before, status) and P.ROOM_SET_OUT_OF_ORDER not in actor_permissions:

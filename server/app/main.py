@@ -39,28 +39,36 @@ from app.services.permissions import sync_permission_catalog
 logger: logging.Logger = logging.getLogger(__name__)
 
 
+async def run_maintenance(app: FastAPI) -> None:
+    """One round of background housekeeping: the expired-users sweep (services/expiry.py)
+    and deleting idempotency keys older than 24 hours. Each task logs its own failure, so
+    one cannot stop the other."""
+    try:
+        async with app.state.session_factory() as db:
+            result = await sweep_expired_users(db, app.state.event_bus)
+        if result.expired_user_ids:
+            logger.info(
+                "Expired %d user(s), revoked %d session(s)",
+                len(result.expired_user_ids),
+                result.sessions_revoked,
+            )
+    except Exception:
+        logger.exception("Expired-users sweep failed")
+    try:
+        async with app.state.session_factory() as db:
+            deleted = await idempotency.delete_expired(db)
+        if deleted:
+            logger.info("Deleted %d old idempotency key(s)", deleted)
+    except Exception:
+        logger.exception("Idempotency key cleanup failed")
+
+
 async def _sweep_forever(app: FastAPI, interval_seconds: int) -> None:
-    """Expired-users sweep (services/expiry.py) and idempotency key cleanup every
-    interval; errors are logged and the loop goes on, so a database blip does not stop
-    it for good."""
+    """run_maintenance every interval (EXPIRY_SWEEP_INTERVAL_SECONDS); the loop goes on
+    after errors, so a database blip does not stop it for good."""
     while True:
         await asyncio.sleep(interval_seconds)
-        try:
-            async with app.state.session_factory() as db:
-                result = await sweep_expired_users(db, app.state.event_bus)
-            if result.expired_user_ids:
-                logger.info(
-                    "Expired %d user(s), revoked %d session(s)",
-                    len(result.expired_user_ids),
-                    result.sessions_revoked,
-                )
-        except Exception:
-            logger.exception("Expired-users sweep failed")
-        try:
-            async with app.state.session_factory() as db:
-                await idempotency.delete_expired(db)
-        except Exception:
-            logger.exception("Idempotency key cleanup failed")
+        await run_maintenance(app)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

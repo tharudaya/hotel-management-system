@@ -76,6 +76,7 @@ ROOM_TYPE_FIELDS: tuple[str, ...] = (
     "max_occupancy",
     "bed_setup",
     "description",
+    "base_rate_minor",
 )
 
 # Sort "99" before "101" and keep names like "PH1" after the plain numbers.
@@ -132,6 +133,7 @@ class RoomSetupService:
             max_occupancy=data.max_occupancy,
             bed_setup=data.bed_setup or None,
             description=data.description or None,
+            base_rate_minor=data.base_rate_minor,
         )
         self.db.add(room_type)
         await self._flush()
@@ -571,6 +573,7 @@ class RoomSetupService:
                 max_occupancy=t.max_occupancy,
                 bed_setup=t.bed_setup,
                 description=t.description,
+                base_rate_minor=t.base_rate_minor,
                 is_active=t.is_active,
                 active_room_count=active.get(t.id, 0),
                 upcoming_reservations=upcoming.get(t.id, 0),

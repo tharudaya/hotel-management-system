@@ -288,7 +288,8 @@ async def test_rooms_query_count_is_constant(
     result = await get_dashboard_rooms(db_session, TODAY)
 
     assert len(result.rooms) == len(hotel)
-    assert len(statements) == 2
+    # Property (not passed here), rooms, reservations.
+    assert len(statements) == 3
 
 
 async def test_summary_query_count_is_constant(

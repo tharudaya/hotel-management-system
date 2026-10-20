@@ -145,6 +145,7 @@ async def test_hotel_info_for_any_signed_in_user(
         "name": test_settings.hotel_name,
         "timezone": "Europe/Stockholm",
         "business_date": "2026-03-10",
+        "currency": "SEK",
     }
 
 

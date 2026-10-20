@@ -1,7 +1,8 @@
 """Read side of the front desk dashboard: per-room status and daily summary.
 
 Each read is a fixed number of queries regardless of the number of rooms or
-reservations (rooms: 2; summary: 4, plus 1 to find the property when it is not given),
+reservations (rooms: 2; summary: 4; both plus 1 to find the property when it is not
+given),
 so there is no N+1.
 
 The summary's "tonight" figures are the availability service's (services/availability):
@@ -106,20 +107,29 @@ def _stay(reservation: Reservation, guest: Guest) -> Stay:
 
 
 async def get_dashboard_rooms(
-    db: AsyncSession, today: date, room_ids: Collection[int] | None = None
+    db: AsyncSession,
+    today: date,
+    room_ids: Collection[int] | None = None,
+    property_id: int | None = None,
 ) -> DashboardRooms:
-    """Dashboard entries for all rooms, or only `room_ids` if given."""
+    """Dashboard entries for the property's rooms, or only `room_ids` if given."""
+    if property_id is None:
+        property_id = await get_default_property_id(db)
     # Retired rooms are not part of the hotel any more: no tile, no counts.
     room_query = (
         select(Room, RoomType)
         .join(Room.room_type)
-        .where(Room.is_active)
+        .where(Room.is_active, Room.property_id == property_id)
         .order_by(Room.floor, Room.number)
     )
-    reservation_scope = Reservation.room_id.is_not(None)
+    reservation_scope = and_(
+        Reservation.room_id.is_not(None), Reservation.property_id == property_id
+    )
     if room_ids is not None:
         room_query = room_query.where(Room.id.in_(room_ids))
-        reservation_scope = Reservation.room_id.in_(room_ids)
+        reservation_scope = and_(
+            Reservation.room_id.in_(room_ids), Reservation.property_id == property_id
+        )
     # populate_existing: always report the database's current state, even for
     # objects this session already loaded (e.g. right after a mutation).
     rooms = (await db.execute(room_query.execution_options(populate_existing=True))).all()

@@ -54,6 +54,9 @@ class RoomTypeOut(BaseModel):
     max_occupancy: int
     bed_setup: str | None
     description: str | None
+    # Default price per night in minor units of the property currency (0 = not set yet:
+    # bookings then need an explicit price).
+    base_rate_minor: int
     is_active: bool
     active_room_count: int
     # Confirmed stays not yet over, plus guests in house, booked as this type.
@@ -64,6 +67,9 @@ class RoomTypeOut(BaseModel):
     updated_at: datetime
 
 
+BaseRate = Annotated[int, Field(ge=0, le=100_000_000)]
+
+
 class RoomTypeCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -72,6 +78,7 @@ class RoomTypeCreate(BaseModel):
     max_occupancy: MaxOccupancy
     bed_setup: BedSetup | None = None
     description: LongText | None = None
+    base_rate_minor: BaseRate = 0
 
 
 class RoomTypeUpdate(BaseModel):
@@ -84,8 +91,10 @@ class RoomTypeUpdate(BaseModel):
     max_occupancy: MaxOccupancy | None = None
     bed_setup: BedSetup | None = None
     description: LongText | None = None
+    # A new price applies to bookings made from now on; existing ones keep theirs.
+    base_rate_minor: BaseRate | None = None
 
-    _required = field_validator("code", "name", "max_occupancy")(_not_null)
+    _required = field_validator("code", "name", "max_occupancy", "base_rate_minor")(_not_null)
 
 
 # --- rooms -------------------------------------------------------------------------

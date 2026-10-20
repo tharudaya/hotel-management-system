@@ -217,7 +217,8 @@ export interface paths {
         };
         /**
          * Hotel
-         * @description Hotel name and today's business date (for the app header). Any signed-in user.
+         * @description Hotel name, today's business date and the currency (for the app header and price
+         *     fields). Any signed-in user.
          */
         get: operations["hotel_api_hotel_get"];
         put?: never;
@@ -1357,6 +1358,8 @@ export interface components {
              * Format: date
              */
             business_date: string;
+            /** Currency */
+            currency: string;
         };
         /**
          * HousekeepingStatus
@@ -1911,6 +1914,11 @@ export interface components {
             bed_setup?: string | null;
             /** Description */
             description?: string | null;
+            /**
+             * Base Rate Minor
+             * @default 0
+             */
+            base_rate_minor: number;
         };
         /** RoomTypeOut */
         RoomTypeOut: {
@@ -1926,6 +1934,8 @@ export interface components {
             bed_setup: string | null;
             /** Description */
             description: string | null;
+            /** Base Rate Minor */
+            base_rate_minor: number;
             /** Is Active */
             is_active: boolean;
             /** Active Room Count */
@@ -1971,6 +1981,8 @@ export interface components {
             bed_setup?: string | null;
             /** Description */
             description?: string | null;
+            /** Base Rate Minor */
+            base_rate_minor?: number | null;
         };
         /** RoomUnassignment */
         RoomUnassignment: {

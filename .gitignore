@@ -41,3 +41,7 @@ pnpm-debug.log*
 *~
 .DS_Store
 Thumbs.db
+
+# Playwright output
+client/test-results/
+client/playwright-report/

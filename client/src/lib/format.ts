@@ -64,3 +64,10 @@ export function parseAmount(text: string): number | null {
   const [, whole = '0', fraction = ''] = match
   return Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
 }
+
+/** Minor units as an editable amount: 129950 -> "1299.50" (integers only, no floats). */
+export function amountInput(minor: number): string {
+  const whole = Math.floor(minor / 100)
+  const cents = minor % 100
+  return cents === 0 ? String(whole) : `${whole}.${String(cents).padStart(2, '0')}`
+}

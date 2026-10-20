@@ -14,8 +14,10 @@ router: APIRouter = APIRouter(
 
 
 @router.get("/rooms")
-async def rooms(db: SessionDep, today: HotelTodayDep) -> DashboardRooms:
-    return await dashboard_service.get_dashboard_rooms(db, today)
+async def rooms(
+    db: SessionDep, today: HotelTodayDep, property_id: CurrentPropertyId
+) -> DashboardRooms:
+    return await dashboard_service.get_dashboard_rooms(db, today, property_id=property_id)
 
 
 @router.get("/summary")

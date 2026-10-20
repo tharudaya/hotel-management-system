@@ -105,6 +105,7 @@ export const HOTEL = {
   name: 'Grand Hotel Stockholm',
   timezone: 'Europe/Stockholm',
   business_date: BUSINESS_DATE,
+  currency: 'SEK',
 }
 
 export function makeReservation(overrides: Partial<ReservationDetail> = {}): ReservationDetail {

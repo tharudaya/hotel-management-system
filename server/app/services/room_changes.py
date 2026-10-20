@@ -15,10 +15,13 @@ from app.services.dashboard import get_dashboard_rooms, get_dashboard_summary
 from app.services.errors import InvalidTransitionError, NotFoundError, VersionConflictError
 
 
-async def load_room(db: AsyncSession, room_id: int) -> Room:
+async def load_room(db: AsyncSession, room_id: int, property_id: int) -> Room:
+    """The room, if it belongs to the property (another property's room is "not found")."""
     # populate_existing: compare versions against the database, not a cached copy.
     room = await db.scalar(
-        select(Room).where(Room.id == room_id).execution_options(populate_existing=True)
+        select(Room)
+        .where(Room.id == room_id, Room.property_id == property_id)
+        .execution_options(populate_existing=True)
     )
     if room is None:
         raise NotFoundError(f"Room {room_id} not found")

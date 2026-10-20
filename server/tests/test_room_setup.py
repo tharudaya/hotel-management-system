@@ -146,11 +146,13 @@ async def test_create_room_type(
             "max_occupancy": 3,
             "bed_setup": "1 king",
             "description": "Sea view",
+            "base_rate_minor": 179_900,
         },
     )
 
     assert response.status_code == 201, response.text
     data = response.json()
+    assert data["base_rate_minor"] == 179_900
     assert (data["code"], data["name"], data["is_active"], data["active_room_count"]) == (
         "DLX",
         "Deluxe King",
@@ -165,8 +167,36 @@ async def test_create_room_type(
         "max_occupancy": 3,
         "bed_setup": "1 king",
         "description": "Sea view",
+        "base_rate_minor": 179_900,
     }
     assert len(setup_events(published)) == 1
+
+
+@pytest.mark.usefixtures("admin")
+async def test_base_rate_defaults_to_not_set_and_can_change(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    created = await client.post(TYPES, json={"code": "fam", "name": "Family", "max_occupancy": 4})
+    assert created.json()["base_rate_minor"] == 0
+
+    changed = await client.patch(
+        f"{TYPES}/{created.json()['id']}", json={"base_rate_minor": 249_900}
+    )
+
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["base_rate_minor"] == 249_900
+    [row] = await audit_rows(db_session, "room_type.updated")
+    assert (row.before, row.after) == ({"base_rate_minor": 0}, {"base_rate_minor": 249_900})
+
+
+@pytest.mark.usefixtures("admin")
+@pytest.mark.parametrize("rate", [-1, 100_000_001, None, "lots"])
+async def test_base_rate_validation(client: AsyncClient, rate: object) -> None:
+    created = await client.post(TYPES, json={"code": "fam", "name": "Family", "max_occupancy": 4})
+
+    response = await client.patch(f"{TYPES}/{created.json()['id']}", json={"base_rate_minor": rate})
+
+    assert response.status_code == 422
 
 
 @pytest.mark.usefixtures("admin")

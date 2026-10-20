@@ -1,8 +1,9 @@
 # Hotel Management System
 
-A hotel management system, starting with a **live front desk dashboard**: staff sign in and
-see every room's occupancy, housekeeping status, current guest and flags, updated in real
-time as anyone checks guests in or out or changes a room's status.
+A hotel management system for staff: a **live front desk dashboard** (every room's
+occupancy, housekeeping status, current guest and flags, updated in real time) and
+**reservations** made by phone, email or at the desk: availability per room type, booking,
+changes, cancellations, no-shows, walk-ins, check-in and check-out.
 
 - `server/` — FastAPI, PostgreSQL, SQLAlchemy (async), WebSocket hub ([server/README.md](server/README.md))
 - `client/` — React, TypeScript, Vite, Tailwind, TanStack Query ([client/README.md](client/README.md))
@@ -59,8 +60,8 @@ Created by the seed script, **for development only** (the script refuses to run 
 | ----------------------- | -------------- | ----------------------- | ------------------------------------------------------------------------------ |
 | Admin                   | `admin`        | `admin-dev-pass`        | Everything                                                                     |
 | General manager         | `manager`      | `manager-dev-pass`      | Everything except property settings                                            |
-| Front office manager    | `fomanager`    | `fomanager-dev-pass`    | Dashboard, rooms (incl. out of order), reservations, guests, payments, reports |
-| Receptionist            | `frontdesk`    | `frontdesk-dev-pass`    | Dashboard, check in/out, housekeeping status (not out of order)                |
+| Front office manager    | `fomanager`    | `fomanager-dev-pass`    | Dashboard, rooms (incl. out of order), all reservation work incl. prices and cancelling, guests, payments, reports |
+| Receptionist            | `frontdesk`    | `frontdesk-dev-pass`    | Dashboard, book and change reservations (not prices, not cancelling), check in/out, housekeeping status (not out of order) |
 | Housekeeping supervisor | `housekeeping` | `housekeeping-dev-pass` | Dashboard (no reservation details), housekeeping incl. out of order            |
 | Room attendant          | `attendant`    | `attendant-dev-pass`    | Housekeeping status via the API (no dashboard)                                 |
 
@@ -94,7 +95,8 @@ permission (only the Admin role has it by default).
 
 1. **Room types** tab: add the kinds of rooms the hotel sells. Each has a short code
    (e.g. `DLX`, stored in capitals and unique), a name, the maximum number of guests
-   (1–12), an optional bed setup ("1 king") and a description.
+   (1–12), the **price per night** (the default for new bookings; bookings already made
+   keep their prices), an optional bed setup ("1 king") and a description.
 2. **Rooms** tab: add each room with its number (e.g. `304` or `PH1`), floor and room type.
    Only active room types can be chosen. New rooms start *Ready* (inspected) and appear on
    the front desk dashboard at once, for everyone, without reloading.
@@ -107,10 +109,62 @@ reactivated. A retired room leaves the dashboard and all counts, and cannot be c
 to. The app explains when something cannot be retired:
 
 - a room with a guest checked in, or with upcoming reservations assigned to it;
+- a room whose type is fully booked on some night: without it, that night would be
+  oversold (the same goes for moving a room to another type);
 - a room type that still has active rooms, or upcoming reservations booked as that type.
 
 A room of a retired type cannot be reactivated until the type is. Every change is in the
 audit log (**Admin > Audit log**, filter *Room setup*).
+
+## Reservations
+
+Staff book stays for guests who call, write or walk in. Online booking, payments and
+channel managers are not part of this yet (see the end of this file).
+
+**Booking** (*Reservations > New reservation*): dates and guests, then the room types with
+how many rooms are free on *every* night and the price, then the guest (search the guests
+on file, or add a new one; the app warns when a similar guest already exists), then source,
+notes, VIP and, with permission, a different price per night; a review; and the
+confirmation code in large type to read to the guest. A *Walk-in* button on the dashboard
+runs the same steps from today, ending with a clean room and the check-in.
+
+**The rules behind it** (enforced by the server; details in `CLAUDE.md`, "Reservations"):
+
+- A stay is a range of nights: arrival day inclusive, departure day exclusive, in the
+  hotel's calendar. A guest leaving on the 12th and another arriving on the 12th never
+  clash.
+- A booking is for a room type; the room is assigned later (at check-in at the latest, or
+  ahead of time with *Assign room*).
+- **No overbooking.** For every night, bookings of a type never exceed its rooms. Checking
+  and booking happen in one database transaction holding a lock on the room type, so two
+  people booking the last room at the same time get one booking and one clear refusal.
+  A database constraint makes it impossible to put two stays in one room on one night.
+- Prices are fixed per night when booking (whole öre, never floating point), so changing
+  a room type's price never changes bookings already made. Changing a price needs the
+  *override rate* permission (Admin, General manager, Front office manager).
+- Pressing *Confirm* twice, or retrying after a lost connection, never books twice (an
+  idempotency key per booking attempt).
+- Two people editing one booking: the second save is refused with an explanation and the
+  latest version is shown (optimistic locking).
+- Statuses: confirmed → checked in → checked out; confirmed → cancelled; confirmed →
+  no-show. Nothing is ever deleted; every change is in the audit log and shows on the
+  booking's history, and reaches open dashboards at once.
+- Changing a booking keeps the price of nights that stay and charges new nights at the
+  current price; the screen shows the difference before saving. A guest in house can only
+  change the departure date (not before today) and notes. Leaving early shortens the stay
+  and its total.
+- Guests' email addresses and phone numbers are shown only to roles with *view guest
+  contact details*, are never written to the server logs (search terms are stripped from
+  access logs), and audit entries record only *that* they changed.
+- Everything is per property: another property's bookings, rooms and guests are "not
+  found".
+
+**Checking the data**: `python -m app.scripts.check_reservations` (from `server/`, or
+`docker compose exec server python -m app.scripts.check_reservations`) checks every room
+type and night from today for overbooking, every room for overlapping stays, and every
+booking's nights and total; it exits non-zero when something is wrong, so it can run from
+cron or CI. Old idempotency keys (over 24 hours) are deleted by the API process every few
+minutes, or with `python -m app.scripts.cleanup_idempotency_keys`.
 
 ## Users and permissions
 
@@ -179,12 +233,20 @@ audit entry (`python -m app.scripts.expire_users` does the same from cron).
 | Client lint / format / types | `npm run lint` · `npm run format:check` · `npm run typecheck`                                   |
 | Client production build      | `npm run build`                                                                                 |
 | End-to-end realtime check    | `npm run test:e2e` (needs the full stack running and freshly seeded)                            |
+| Browser tests (Playwright)   | `npm run test:browser` (full stack running and seeded; once: `npx playwright install chromium`) |
+| Reservation data check       | `cd server && uv run python -m app.scripts.check_reservations`                                  |
 | Server tests in Docker       | `docker compose exec server pytest`                                                             |
 
 The server suite runs against a separate `hotel_test` database that it creates and
-migrates itself. The client suite includes automated accessibility checks (axe-core) for
-the login page, dashboard and detail panel. The end-to-end check logs in twice, checks a
-guest out in one session and requires the other to see it within one second.
+migrates itself; the concurrency tests in it (parallel bookings of the last room, one
+idempotency key raced across room types, room types swapped in parallel) use real
+commits. The client suite includes automated accessibility checks (axe-core) and
+keyboard-only walks of the main screens. The end-to-end check logs in twice, checks a guest
+out in one session and requires the other to see it within one second. The Playwright
+tests drive Chromium through a phone booking with check-in and check-out, two people
+booking the last room at once, changing, cancelling and no-shows, and what receptionists
+and front office managers may do; each makes its own room types, so the seed's rooms are
+left alone.
 
 ## Architecture
 
@@ -260,9 +322,9 @@ development).
    needs a built client served as static files, a non-reload server image, TLS, a
    Content-Security-Policy, and `--forwarded-allow-ips` so client IPs (used for login
    throttling and audit) are correct behind a proxy.
-3. **Unassigned arrivals can't be checked in from the dashboard yet.** The API can assign
-   rooms (`/assign-room`) and the summary lists today's arrivals (unassigned first); the
-   screen for it is the next step.
+3. **Arrivals are checked in from the reservation, not from the arrivals list.** The
+   dashboard lists today's arrivals (unassigned first) and links to each booking, where
+   *Assign room* and *Check in* are.
 4. **No real email backend yet** (only `console` for development and `disabled`). Until
    one is added, admins share invite links in person, password resets by email fail with
    a clear error, and forgot-password sends nothing.
@@ -319,3 +381,39 @@ development).
     a real screen reader.** Test the admin screens with NVDA (Windows) and VoiceOver (macOS
     and iOS) before relying on them.
 
+### Reservations: known simplifications and suggested next steps
+
+Simplifications today:
+
+1. **Out of order has no dates.** A room out of order counts as unsellable tonight only;
+   future nights count it as available. Taking a room out of order tonight is allowed even
+   when that oversells tonight (the guest needs another room); the data check reports it.
+   Next: maintenance blocks with date ranges that availability subtracts.
+2. **One price per room type.** No seasons, weekday prices, rate plans, packages, taxes or
+   discounts; a manager can set a different price per night for one booking, for all its
+   nights at once.
+3. **Changing the room type keeps the nights' prices.** An upgrade keeps the original
+   price unless a manager re-prices it.
+4. **Overstays are not billed.** A guest staying past the booked date keeps their dates
+   and total until checked out; nothing extends the booking automatically.
+5. **No night audit.** Late arrivals stay "confirmed" until someone marks the no-show;
+   nothing closes the day automatically.
+6. **One room per booking.** No group or multi-room bookings, no waitlist, no deliberate
+   overbooking.
+7. **Guests.** No merging of duplicates, no export or erasure for privacy requests, and
+   two people editing a guest at once means the last save wins. Phone search matches
+   digits as stored ("70 123" finds "+46 70 123…", "070 123" does not).
+8. **No messages to guests.** Confirmation codes are read out; nothing is emailed.
+9. **Single property in practice.** Data is scoped per property, but the app always acts
+   on the first property, and the event bus is in-process (one API process).
+
+Suggested next steps, roughly in order of value to a front desk:
+
+1. A **tape chart** (rooms down, nights across) to see and drag room assignments.
+2. **Maintenance blocks** with dates (replacing "out of order tonight" in availability).
+3. **Payments and folios**: deposits, charges, refunds and invoices on the booking.
+4. **Rate plans**: seasons, weekdays, minimum stay, corporate rates.
+5. A **night audit** that marks no-shows, extends or bills overstays and rolls the date.
+6. **Guest communication**: confirmation and pre-arrival emails.
+7. **Reports**: occupancy, average daily rate and revenue per available room.
+8. **Group bookings**, then online booking and channel managers.

@@ -9,6 +9,8 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Dialog } from '../../components/Dialog'
 import { GuardedButton } from '../../components/GuardedButton'
 import { buttonPrimary, buttonSecondary, focusRing } from '../../components/styles'
+import { useHotelInfo } from '../../dashboard/queries'
+import { amountInput, formatMoney, parseAmount } from '../../lib/format'
 import { useDocumentTitle } from '../../lib/useDocumentTitle'
 import { Field } from '../users/Field'
 import { messageFor } from '../users/form'
@@ -21,6 +23,7 @@ const CODE_PATTERN = /^[A-Za-z0-9_-]{1,20}$/
 
 /** /admin/rooms/types */
 export function RoomTypesPage() {
+  const currency = useHotelInfo().data?.currency ?? 'SEK'
   useDocumentTitle('Room types')
   const [search, setSearch] = useSearchParams()
   const showRetired = search.get('show') === 'retired'
@@ -96,7 +99,15 @@ export function RoomTypesPage() {
               <caption className="sr-only">Room types</caption>
               <thead className="bg-slate-50 text-slate-700">
                 <tr>
-                  {['Code', 'Name', 'Max guests', 'Beds', 'Active rooms', 'Status'].map((label) => (
+                  {[
+                    'Code',
+                    'Name',
+                    'Max guests',
+                    'Beds',
+                    'Price per night',
+                    'Active rooms',
+                    'Status',
+                  ].map((label) => (
                     <th key={label} scope="col" className="px-4 py-2 font-semibold">
                       {label}
                     </th>
@@ -116,6 +127,13 @@ export function RoomTypesPage() {
                     <td className="px-4 py-2 text-slate-700 tabular-nums">{type.max_occupancy}</td>
                     <td className="px-4 py-2 text-slate-700">
                       {type.bed_setup ?? <span className="text-slate-400">Not set</span>}
+                    </td>
+                    <td className="px-4 py-2 whitespace-nowrap text-slate-700 tabular-nums">
+                      {type.base_rate_minor > 0 ? (
+                        formatMoney(type.base_rate_minor, currency)
+                      ) : (
+                        <span className="text-amber-800">Not set</span>
+                      )}
                     </td>
                     <td className="px-4 py-2 text-slate-700 tabular-nums">
                       {type.active_room_count}
@@ -221,7 +239,7 @@ function StatusDialog({
   )
 }
 
-type TypeField = 'code' | 'name' | 'max_occupancy'
+type TypeField = 'code' | 'name' | 'max_occupancy' | 'rate'
 
 function RoomTypeFormDialog({
   roomType,
@@ -241,12 +259,15 @@ function RoomTypeFormDialog({
     max_occupancy: String(roomType?.max_occupancy ?? 2),
     bed_setup: roomType?.bed_setup ?? '',
     description: roomType?.description ?? '',
+    rate: roomType && roomType.base_rate_minor > 0 ? amountInput(roomType.base_rate_minor) : '',
   })
+  const currency = useHotelInfo().data?.currency ?? 'SEK'
   const [errors, setErrors] = useState<Partial<Record<TypeField, string>>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const codeRef = useRef<HTMLInputElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
   const guestsRef = useRef<HTMLInputElement>(null)
+  const rateRef = useRef<HTMLInputElement>(null)
 
   function set(field: keyof typeof values, value: string) {
     setValues((current) => ({ ...current, [field]: value }))
@@ -255,7 +276,9 @@ function RoomTypeFormDialog({
 
   function showError(field: TypeField, message: string) {
     setErrors({ [field]: message })
-    ;({ code: codeRef, name: nameRef, max_occupancy: guestsRef })[field].current?.focus()
+    ;({ code: codeRef, name: nameRef, max_occupancy: guestsRef, rate: rateRef })[
+      field
+    ].current?.focus()
   }
 
   function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
@@ -274,12 +297,18 @@ function RoomTypeFormDialog({
       showError('max_occupancy', `Enter a number from 1 to ${MAX_GUESTS}.`)
       return
     }
+    const rate = parseAmount(values.rate)
+    if (rate === null || rate < 1) {
+      showError('rate', 'Enter the price per night, like 1299 or 1299.50.')
+      return
+    }
     const next = {
       code: values.code.trim(),
       name: values.name.trim(),
       max_occupancy: guests,
       bed_setup: values.bed_setup.trim() || null,
       description: values.description.trim() || null,
+      base_rate_minor: rate,
     }
     const onError = (error: Error) => {
       if (error instanceof ApiError && error.code === 'room_type_code_taken') {
@@ -306,6 +335,8 @@ function RoomTypeFormDialog({
     if (next.max_occupancy !== roomType.max_occupancy) body.max_occupancy = next.max_occupancy
     if (next.bed_setup !== roomType.bed_setup) body.bed_setup = next.bed_setup
     if (next.description !== roomType.description) body.description = next.description
+    if (next.base_rate_minor !== roomType.base_rate_minor)
+      body.base_rate_minor = next.base_rate_minor
     if (Object.keys(body).length === 0) {
       onClose()
       return
@@ -376,6 +407,18 @@ function RoomTypeFormDialog({
             }}
           />
         </div>
+        <Field
+          ref={rateRef}
+          label={`Price per night (${currency})`}
+          required
+          inputMode="decimal"
+          hint="The default price of a night; bookings already made keep theirs."
+          value={values.rate}
+          error={errors.rate}
+          onChange={(e) => {
+            set('rate', e.target.value)
+          }}
+        />
         <TextAreaField
           label="Description"
           maxLength={2000}

@@ -197,7 +197,7 @@ class ReservationService:
         replay = await self._replay(idempotency_key, body_hash, WALK_IN_ENDPOINT)
         if replay is not None:
             return replay, True
-        room = await load_room(self.db, data.room_id)
+        room = await load_room(self.db, data.room_id, self.property_id)
         booking = ReservationCreate(
             guest_id=data.guest_id,
             guest=data.guest,
@@ -216,7 +216,7 @@ class ReservationService:
             return booked, True
         try:
             # Under the room type lock now: read the room again (its type may have moved).
-            room = await load_room(self.db, data.room_id)
+            room = await load_room(self.db, data.room_id, self.property_id)
             ensure_version(room, data.room_version)
             await self._check_in_steps(booked, room)
         except BaseException:
@@ -233,7 +233,7 @@ class ReservationService:
         """confirmed -> checked_in, into a ready, vacant room of the reserved type; from the
         arrival day (any time that day) until the stay ends. Returns the room's tile."""
         reservation = await self._load_for_update(reservation_id)
-        room = await load_room(self.db, room_id)
+        room = await load_room(self.db, room_id, self.property_id)
         ensure_version(room, room_version)
         previous_room_id = reservation.room_id
         await self._check_in_steps(reservation, room)
@@ -254,7 +254,7 @@ class ReservationService:
             raise InvalidTransitionError(
                 f"Cannot check out: the reservation is {STATUS_PHRASES[reservation.status]}."
             )
-        room = await load_room(self.db, reservation.room_id)
+        room = await load_room(self.db, reservation.room_id, self.property_id)
         ensure_version(room, room_version)
         housekeeping_before = room.housekeeping_status
         before: dict[str, object] = {
@@ -304,7 +304,7 @@ class ReservationService:
             )
         if reservation.check_out_date <= self.today:
             raise DomainError(f"The stay of {code} has already ended.", code="stay_ended")
-        room = await load_room(self.db, room_id)
+        room = await load_room(self.db, room_id, self.property_id)
         if reservation.room_id == room.id:
             return await self.view(reservation_id)
         self._ensure_room_type(room, reservation)
