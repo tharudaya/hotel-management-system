@@ -10,6 +10,9 @@ class AvailabilityQuery(BaseModel):
     check_out: date
     adults: int = Field(default=1, ge=1, le=12)
     children: int = Field(default=0, ge=0, le=12)
+    # When changing a booking: leave it out of the counts, so it does not compete with
+    # itself.
+    exclude_reservation_id: int | None = Field(default=None, gt=0)
 
 
 class NightlyRate(BaseModel):

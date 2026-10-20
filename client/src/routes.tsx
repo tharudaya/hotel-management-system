@@ -20,7 +20,8 @@ import { DashboardPage } from './pages/DashboardPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { LoginPage } from './pages/LoginPage'
 import { SetPasswordPage } from './pages/SetPasswordPage'
-import { NewReservationPage } from './reservations/NewReservationPage'
+import { NewReservationPage, WalkInPage } from './reservations/NewReservationPage'
+import { EditReservationPage } from './booking/EditReservationPage'
 import { ReservationDetailPage } from './reservations/ReservationDetailPage'
 import { ReservationsListPage } from './reservations/ReservationsListPage'
 
@@ -56,7 +57,28 @@ export const routes: RouteObject[] = [
                       </RequirePermission>
                     ),
                   },
+                  {
+                    // Booking, checking in and picking a room (from the dashboard's list).
+                    path: 'walk-in',
+                    element: (
+                      <RequirePermission permission={P.RESERVATION_CREATE}>
+                        <RequirePermission permission={P.RESERVATION_CHECK_IN}>
+                          <RequirePermission permission={P.DASHBOARD_VIEW}>
+                            <WalkInPage />
+                          </RequirePermission>
+                        </RequirePermission>
+                      </RequirePermission>
+                    ),
+                  },
                   { path: ':reservationId', element: <ReservationDetailPage /> },
+                  {
+                    path: ':reservationId/edit',
+                    element: (
+                      <RequirePermission permission={P.RESERVATION_MODIFY}>
+                        <EditReservationPage />
+                      </RequirePermission>
+                    ),
+                  },
                 ],
               },
               {

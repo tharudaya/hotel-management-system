@@ -675,7 +675,9 @@ class ReservationService:
 
     # --- changes ----------------------------------------------------------------------
 
-    async def modify(self, reservation_id: int, data: ReservationUpdate) -> ReservationView:
+    async def modify(
+        self, reservation_id: int, data: ReservationUpdate, *, dry_run: bool = False
+    ) -> ReservationView:
         """Change a booking in one transaction; on any refusal the original stays as it was.
 
         Confirmed: dates, room type, guests, notes, VIP, price. Checked in: only the
@@ -798,6 +800,14 @@ class ReservationService:
                 before.pop(field, None)
                 after.pop(field, None)
         self._audit(AuditAction.RESERVATION_UPDATED, reservation, before, after)
+
+        if dry_run:
+            # Preview: the booking as it would be, then everything is rolled back (no
+            # audit row, no event). Version and history are the current ones.
+            await self.db.flush()
+            preview = await self.view(reservation_id)
+            await self.db.rollback()
+            return preview.model_copy(update={"version": data.version, "history": []})
 
         event = self._event(reservation, "updated")
         await self._commit(code)

@@ -2,7 +2,7 @@
  * Accessibility checks with axe-core on the real pages, plus keyboard paths.
  * (Color contrast cannot be computed in jsdom, so that one rule is off here.)
  */
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import axe from 'axe-core'
 import { describe, expect, it } from 'vitest'
@@ -460,6 +460,87 @@ describe('accessibility (axe): reservations', () => {
 
     await user.click(screen.getByRole('button', { name: 'Cancel booking' }))
     await screen.findByRole('dialog', { name: /Cancel Alan Turing's booking/ })
+    await expectNoViolations()
+  })
+})
+
+describe('accessibility (axe): booking', () => {
+  it('booking steps (with errors) and the change page with its preview', async () => {
+    const type = {
+      room_type_id: 1,
+      code: 'STD',
+      name: 'Standard Queen',
+      max_occupancy: 2,
+      bed_setup: '1 queen',
+      available: 0,
+      nightly_rates: [{ night_date: '2026-10-12', rate_minor: 129_900 }],
+      total_minor: 129_900,
+      currency: 'SEK',
+    }
+    const booking = {
+      ...makeReservation({
+        status: 'confirmed',
+        check_in_date: '2026-10-12',
+        check_out_date: '2026-10-14',
+      }),
+      history: [],
+    }
+    mockApi({
+      'GET /api/auth/me': () => [200, MANAGER],
+      'GET /api/hotel': () => [200, HOTEL],
+      'GET /api/reservations/availability?check_in=2026-10-12&check_out=2026-10-13&adults=1&children=0':
+        () => [
+          200,
+          {
+            check_in_date: '2026-10-12',
+            check_out_date: '2026-10-13',
+            nights: 1,
+            adults: 1,
+            children: 0,
+            currency: 'SEK',
+            room_types: [type, { ...type, room_type_id: 2, name: 'Deluxe King', available: 3 }],
+          },
+        ],
+      'GET /api/reservations/13': () => [200, booking],
+      'GET /api/reservations/availability?check_in=2026-10-12&check_out=2026-10-14&adults=1&children=0&exclude_reservation_id=13':
+        () => [
+          200,
+          {
+            check_in_date: '2026-10-12',
+            check_out_date: '2026-10-14',
+            nights: 2,
+            adults: 1,
+            children: 0,
+            currency: 'SEK',
+            room_types: [type],
+          },
+        ],
+    })
+    const router = renderApp('/reservations/new')
+    const user = userEvent.setup()
+
+    await screen.findByRole('heading', { name: 'Dates and guests', level: 2 })
+    await user.clear(screen.getByLabelText('Adults'))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Enter 1 to 12 adults.')
+    await expectNoViolations()
+
+    await user.type(screen.getByLabelText('Adults'), '1')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('radio', { name: /Deluxe King/ })
+    await expectNoViolations()
+
+    await user.click(screen.getByRole('radio', { name: /Deluxe King/ }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('heading', { name: 'Guest', level: 2 })
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText("Enter the guest's first name.")
+    await expectNoViolations()
+
+    await act(async () => {
+      await router.navigate('/reservations/13/edit')
+    })
+    await screen.findByRole('complementary', { name: 'Price before and after' })
     await expectNoViolations()
   })
 })

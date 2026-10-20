@@ -224,7 +224,12 @@ async def get_availability(
     default nightly rates. 422 for a stay the hotel does not take (past, too long, too far
     ahead)."""
     return await AvailabilityService(db, today).available_by_room_type(
-        property_id, query.check_in, query.check_out, query.adults, query.children
+        property_id,
+        query.check_in,
+        query.check_out,
+        query.adults,
+        query.children,
+        query.exclude_reservation_id,
     )
 
 
@@ -293,6 +298,16 @@ async def modify_reservation(
     reservation.override_rate.
     """
     return await service.modify(reservation_id, body)
+
+
+@router.post("/{reservation_id}/preview-change", responses=CHANGE_ERRORS)
+async def preview_change(
+    reservation_id: ReservationId, body: ReservationUpdate, service: ChangeService
+) -> ReservationView:
+    """What PATCH would make of the booking (nights, prices, total, room), with the same
+    checks and errors, without saving anything. `history` is empty and `version` is the
+    current one."""
+    return await service.modify(reservation_id, body, dry_run=True)
 
 
 @router.post("/{reservation_id}/cancel", responses=CHANGE_ERRORS)

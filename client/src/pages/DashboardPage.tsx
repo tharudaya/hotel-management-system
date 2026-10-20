@@ -1,9 +1,10 @@
 import { useCallback } from 'react'
-import { useSearchParams } from 'react-router'
+import { UserPlus } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router'
 
 import { useAuthenticatedUser } from '../auth/currentUser'
 import { can, P } from '../auth/permissions'
-import { buttonSecondary } from '../components/styles'
+import { buttonPrimary, buttonSecondary } from '../components/styles'
 import {
   applyFilters,
   filtersFromParams,
@@ -49,6 +50,7 @@ export function DashboardPage() {
 }
 
 function Dashboard() {
+  const user = useAuthenticatedUser()
   const rooms = useRooms()
   const summary = useSummary()
   const [params, setParams] = useSearchParams()
@@ -103,6 +105,14 @@ function Dashboard() {
     <div className={selectedRoom ? 'xl:pr-[28rem]' : undefined}>
       <h1 className="sr-only">Rooms</h1>
       <div className="space-y-4">
+        {can(user, P.RESERVATION_CREATE) && can(user, P.RESERVATION_CHECK_IN) && (
+          <div className="flex justify-end">
+            <Link to="/reservations/walk-in" className={buttonPrimary}>
+              <UserPlus aria-hidden="true" className="size-4" />
+              Walk-in
+            </Link>
+          </div>
+        )}
         {summary.data ? (
           <SummaryBar summary={summary.data} activeView={filters.view} onSelectView={setView} />
         ) : summary.isError ? (

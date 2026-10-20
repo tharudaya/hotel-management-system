@@ -1,25 +1,36 @@
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 
+import { BookingFlow } from '../booking/BookingFlow'
 import { focusRing } from '../components/styles'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 
-/** /reservations/new: the booking form comes in the next step; until then, say so. */
-export function NewReservationPage() {
-  useDocumentTitle('New reservation')
+function Page({ title, walkIn }: { title: string; walkIn: boolean }) {
+  useDocumentTitle(title)
+  // A new location (e.g. "New reservation" after a booking) starts a fresh flow, with a
+  // fresh Idempotency-Key.
+  const location = useLocation()
   return (
-    <section aria-labelledby="new-reservation-heading" className="space-y-4">
+    <section aria-labelledby="booking-heading" className="space-y-4">
       <Link
-        to="/reservations"
+        to={walkIn ? '/' : '/reservations'}
         className={`inline-block rounded-sm text-sm text-sky-800 hover:underline ${focusRing}`}
       >
-        ← All reservations
+        {walkIn ? '← Dashboard' : '← All reservations'}
       </Link>
-      <h1 id="new-reservation-heading" className="text-xl font-semibold text-slate-900">
-        New reservation
+      <h1 id="booking-heading" className="text-xl font-semibold text-slate-900">
+        {title}
       </h1>
-      <p className="rounded-lg bg-white p-6 text-slate-700 shadow-sm">
-        The booking form is not available in this version yet.
-      </p>
+      <BookingFlow key={location.key} walkIn={walkIn} />
     </section>
   )
+}
+
+/** /reservations/new */
+export function NewReservationPage() {
+  return <Page title="New reservation" walkIn={false} />
+}
+
+/** /reservations/walk-in: book from today and check in at once. */
+export function WalkInPage() {
+  return <Page title="Walk-in" walkIn />
 }

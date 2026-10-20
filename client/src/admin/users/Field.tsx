@@ -9,7 +9,11 @@ export function Field({
   error,
   required,
   ...input
-}: ComponentProps<'input'> & { label: string; hint?: string; error?: string | undefined }) {
+}: ComponentProps<'input'> & {
+  label: string
+  hint?: string | undefined
+  error?: string | undefined
+}) {
   const id = useId()
   const hintId = useId()
   const errorId = useId()

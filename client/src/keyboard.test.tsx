@@ -272,3 +272,66 @@ describe('keyboard only', () => {
     expect(document.title).toBe('Reset your password – Hotel Management')
   })
 })
+
+describe('keyboard only: booking', () => {
+  it('dates, room type and the guest step with Enter, Tab and arrows', async () => {
+    const room = {
+      room_type_id: 1,
+      code: 'STD',
+      name: 'Standard Queen',
+      max_occupancy: 2,
+      bed_setup: null,
+      available: 2,
+      nightly_rates: [{ night_date: HOTEL.business_date, rate_minor: 129_900 }],
+      total_minor: 129_900,
+      currency: 'SEK',
+    }
+    mockApi({
+      'GET /api/auth/me': () => [200, MANAGER_USER],
+      'GET /api/hotel': () => [200, HOTEL],
+      'GET /api/reservations/availability?check_in=2026-10-12&check_out=2026-10-13&adults=1&children=0':
+        () => [
+          200,
+          {
+            check_in_date: '2026-10-12',
+            check_out_date: '2026-10-13',
+            nights: 1,
+            adults: 1,
+            children: 0,
+            currency: 'SEK',
+            room_types: [room, { ...room, room_type_id: 2, name: 'Deluxe King', code: 'DLX' }],
+          },
+        ],
+    })
+    renderApp('/reservations/new')
+    const user = userEvent.setup()
+
+    // Enter in a field moves on (each step is a form).
+    focusOn(await screen.findByLabelText('Departure'))
+    await user.keyboard('{Enter}')
+    const step = await screen.findByRole('heading', { name: 'Room type', level: 2 })
+    await waitFor(() => {
+      expect(step).toHaveFocus()
+    })
+
+    // One Tab from the heading reaches the room types; arrows move between them.
+    await user.tab()
+    const standard = await screen.findByRole('radio', { name: /Standard Queen/ })
+    expect(standard).toHaveFocus()
+    await user.keyboard('{ArrowDown}')
+    expect(screen.getByRole('radio', { name: /Deluxe King/ })).toBeChecked()
+    await user.keyboard('{Enter}')
+
+    const guestStep = await screen.findByRole('heading', { name: 'Guest', level: 2 })
+    await waitFor(() => {
+      expect(guestStep).toHaveFocus()
+    })
+    // "New guest" is chosen first; an arrow switches to searching guests on file.
+    await user.tab()
+    expect(screen.getByRole('radio', { name: 'New guest' })).toHaveFocus()
+    await user.keyboard('{ArrowLeft}')
+    expect(screen.getByRole('radio', { name: 'Guest on file' })).toBeChecked()
+    await user.tab()
+    expect(screen.getByRole('searchbox', { name: 'Find a guest' })).toHaveFocus()
+  })
+})

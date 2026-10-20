@@ -351,6 +351,28 @@ export interface paths {
         patch: operations["modify_reservation_api_reservations__reservation_id__patch"];
         trace?: never;
     };
+    "/api/reservations/{reservation_id}/preview-change": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Change
+         * @description What PATCH would make of the booking (nights, prices, total, room), with the same
+         *     checks and errors, without saving anything. `history` is empty and `version` is the
+         *     current one.
+         */
+        post: operations["preview_change_api_reservations__reservation_id__preview_change_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reservations/{reservation_id}/cancel": {
         parameters: {
             query?: never;
@@ -2844,6 +2866,7 @@ export interface operations {
                 check_out: string;
                 adults?: number;
                 children?: number;
+                exclude_reservation_id?: number | null;
             };
             header?: never;
             path?: never;
@@ -2952,6 +2975,68 @@ export interface operations {
         };
     };
     modify_reservation_api_reservations__reservation_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reservation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReservationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReservationView"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoAvailabilityResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    preview_change_api_reservations__reservation_id__preview_change_post: {
         parameters: {
             query?: never;
             header?: never;

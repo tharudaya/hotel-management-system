@@ -380,9 +380,8 @@ describe('reservation detail', () => {
 
 async function actionNames(): Promise<string[]> {
   const group = await screen.findByRole('group', { name: 'Actions' })
-  return within(group)
-    .getAllByRole('button')
-    .map((b) => b.textContent)
+  // Buttons, and the link to the change page, in page order.
+  return [...group.querySelectorAll('a, button')].map((el) => el.textContent)
 }
 
 describe('reservation actions', () => {
@@ -517,51 +516,6 @@ describe('cancelling', () => {
 })
 
 describe('conflicts', () => {
-  it('refetches and explains when someone else changed the booking', async () => {
-    let reads = 0
-    const changedElsewhere = { ...ARRIVING, version: 2, notes: 'Changed by a colleague' }
-    const fetchMock = mockApi({
-      ...base(),
-      'GET /api/reservations/31': () => [200, ++reads === 1 ? ARRIVING : changedElsewhere],
-      'PATCH /api/reservations/31': () => [
-        409,
-        { detail: 'Reservation KX7M2P9Q was changed by someone else', code: 'version_conflict' },
-      ],
-      'GET /api/reservations/availability?check_in=2026-10-12&check_out=2026-10-14&adults=1&children=0':
-        () => [
-          200,
-          {
-            check_in_date: '2026-10-12',
-            check_out_date: '2026-10-14',
-            nights: 2,
-            adults: 1,
-            children: 0,
-            currency: 'SEK',
-            room_types: [],
-          },
-        ],
-    })
-    renderApp('/reservations/31')
-    const user = userEvent.setup()
-
-    await user.click(await screen.findByRole('button', { name: 'Change booking' }))
-    const dialog = screen.getByRole('dialog', { name: 'Change booking KX7M2P9Q' })
-    const notes = within(dialog).getByLabelText(/Notes/)
-    await user.clear(notes)
-    await user.type(notes, 'Cot needed')
-    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
-
-    const alert = (await screen.findByText(/Someone else changed this booking/)).closest(
-      '[role="alert"]',
-    )
-    expect(alert).not.toBeNull()
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    // The latest version is shown.
-    expect(await screen.findByText('Changed by a colleague')).toBeVisible()
-    expect(bodyOf(fetchMock, '/api/reservations/31')).toEqual({ version: 1, notes: 'Cot needed' })
-    expect(reads).toBe(2)
-  })
-
   it('shows other refusals inside the dialog', async () => {
     mockApi({
       ...detailHandlers(ARRIVING),

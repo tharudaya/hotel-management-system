@@ -39,6 +39,7 @@ ACCESS: dict[tuple[str, str], str | frozenset[str]] = {
     ("GET", "/api/reservations/{reservation_id}"): P.RESERVATION_VIEW,
     ("GET", "/api/reservations/by-code/{confirmation_code}"): P.RESERVATION_VIEW,
     ("PATCH", "/api/reservations/{reservation_id}"): P.RESERVATION_MODIFY,
+    ("POST", "/api/reservations/{reservation_id}/preview-change"): P.RESERVATION_MODIFY,
     ("POST", "/api/reservations/{reservation_id}/cancel"): P.RESERVATION_CANCEL,
     ("POST", "/api/reservations/{reservation_id}/no-show"): P.RESERVATION_CANCEL,
     ("POST", "/api/reservations/{reservation_id}/check-in"): P.RESERVATION_CHECK_IN,

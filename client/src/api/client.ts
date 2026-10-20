@@ -12,12 +12,15 @@ export class ApiError extends Error {
   readonly status: number
   /** Machine-readable code from the backend (e.g. "version_conflict"), if any. */
   readonly code: string | undefined
+  /** The whole JSON error body, for extra fields (e.g. unavailable_nights). */
+  readonly body: unknown
 
-  constructor(status: number, message: string, code?: string) {
+  constructor(status: number, message: string, code?: string, body: unknown = null) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.body = body
   }
 }
 
@@ -44,11 +47,13 @@ export interface RequestOptions {
   signal?: AbortSignal
   /** Default true. Set false where a 401 is an expected answer, not a lost session. */
   redirectOnUnauthorized?: boolean
+  /** Extra request headers (e.g. Idempotency-Key). */
+  headers?: Record<string, string>
 }
 
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, signal, redirectOnUnauthorized = true } = options
-  const headers: Record<string, string> = { Accept: 'application/json' }
+  const headers: Record<string, string> = { Accept: 'application/json', ...options.headers }
   const init: RequestInit = { method, headers, credentials: 'include' }
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json'
@@ -71,7 +76,7 @@ async function toApiError(response: Response): Promise<ApiError> {
   } catch {
     // Not JSON (e.g. a proxy error page); fall back to the status text.
   }
-  return new ApiError(response.status, errorMessage(body, response), errorCode(body))
+  return new ApiError(response.status, errorMessage(body, response), errorCode(body), body)
 }
 
 function errorMessage(body: unknown, response: Response): string {
