@@ -107,8 +107,8 @@ test('two people booking the last room at once: one gets it, the other is told',
     ? manager
     : desk
   await expect(loser.getByRole('radio', { name: new RegExp(type.name) })).toBeDisabled()
-  await loser.context().close()
-  await (loser === desk ? manager : desk).context().close()
+  await desk.context().close()
+  await manager.context().close()
 })
 
 test('change dates, cancel and mark a no-show', async ({ page }) => {

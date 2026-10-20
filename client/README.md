@@ -26,7 +26,7 @@ cookie just works. Dev logins are listed in `server/README.md`.
 | `npm run lint`                    | ESLint (type-aware)                                                      |
 | `npm run format` / `format:check` | Prettier                                                                 |
 | `npm test` / `test:watch`         | Vitest + React Testing Library                                           |
-| `npm run test:e2e`                | Two-window realtime check against running servers (see Realtime)         |
+| `npm run test:e2e`                | Playwright browser tests on their own stack and database (`e2e/`)        |
 | `npm run generate:api`            | Regenerate `src/api/schema.ts` from the running backend's OpenAPI schema |
 
 Run `npm run generate:api` (with the server running) after any backend API change and commit
@@ -38,9 +38,10 @@ the result; named aliases for the generated types live in `src/api/types.ts`.
 (no full refetch), bursts are batched, and every (re)connect refetches the snapshot. The
 header shows Live / Reconnecting / Offline.
 
-`npm run test:e2e` checks the whole path with the app's own realtime code: two logins,
-a check-out in one, the other must update within a second. Start the database, reseed
-(`python -m app.scripts.seed --reset` in `server/`), run the backend and `npm run dev` first.
+`npm run test:e2e` checks the whole path in two browser windows: a check-out in one, the
+other must update within a second. It starts its own backend (port 8001, database
+`hotel_e2e`, reseeded each run) and Vite server (port 5174), so the dev data is never
+touched; only the database container needs to run.
 
 ## Layout
 
@@ -56,7 +57,6 @@ src/
   pages/            LoginPage, DashboardPage
   dashboard/        summary bar, filters, room grid and tiles, detail panel, actions
   realtime/         WebSocket connection, cache patching, useRealtime, status chip
-  e2e/              tests against running servers (npm run test:e2e)
   test/setup.ts     jest-dom matchers, cleanup
 ```
 

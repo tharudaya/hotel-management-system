@@ -1,7 +1,8 @@
 /** Helpers for the browser tests: signing in, and test data made through the API. */
 import { type APIRequestContext, type Browser, expect, type Page, request } from '@playwright/test'
 
-export const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:5173'
+// The e2e stack's client (playwright.config.ts), never the dev one on :5173.
+export const BASE_URL = 'http://localhost:5174'
 
 /** Dev users from the seed script, by role. */
 export const USERS = {

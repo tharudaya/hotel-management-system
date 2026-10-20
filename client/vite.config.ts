@@ -35,8 +35,8 @@ export default defineConfig(({ mode }) => {
       maxWorkers: 4,
       setupFiles: ['./src/test/setup.ts'],
       css: false,
-      // Needs running servers: `npm run test:e2e` (vitest.e2e.config.ts).
-      exclude: [...configDefaults.exclude, 'src/e2e/**'],
+      // Browser tests run with Playwright: `npm run test:e2e` (playwright.config.ts).
+      exclude: [...configDefaults.exclude, 'e2e/**'],
     },
   }
 })

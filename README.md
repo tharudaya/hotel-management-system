@@ -232,8 +232,7 @@ audit entry (`python -m app.scripts.expire_users` does the same from cron).
 | Client tests (Vitest + RTL)  | `cd client && npm test`                                                                         |
 | Client lint / format / types | `npm run lint` · `npm run format:check` · `npm run typecheck`                                   |
 | Client production build      | `npm run build`                                                                                 |
-| End-to-end realtime check    | `npm run test:e2e` (needs the full stack running and freshly seeded)                            |
-| Browser tests (Playwright)   | `npm run test:browser` (full stack running and seeded; once: `npx playwright install chromium`) |
+| Browser tests (Playwright)   | `npm run test:e2e` (needs only the db container; once: `npx playwright install chromium`)       |
 | Reservation data check       | `cd server && uv run python -m app.scripts.check_reservations`                                  |
 | Server tests in Docker       | `docker compose exec server pytest`                                                             |
 
@@ -241,12 +240,15 @@ The server suite runs against a separate `hotel_test` database that it creates a
 migrates itself; the concurrency tests in it (parallel bookings of the last room, one
 idempotency key raced across room types, room types swapped in parallel) use real
 commits. The client suite includes automated accessibility checks (axe-core) and
-keyboard-only walks of the main screens. The end-to-end check logs in twice, checks a guest
-out in one session and requires the other to see it within one second. The Playwright
-tests drive Chromium through a phone booking with check-in and check-out, two people
-booking the last room at once, changing, cancelling and no-shows, and what receptionists
-and front office managers may do; each makes its own room types, so the seed's rooms are
-left alone.
+keyboard-only walks of the main screens.
+
+The browser tests (Playwright, Chromium) **never touch the dev data**: they start their
+own backend on port 8001 with its own database, `hotel_e2e`, which is created, migrated
+and freshly seeded on every run, and their own Vite server on port 5174. The dev stack can
+keep running alongside. They check that a check-out in one window reaches another within a
+second, a phone booking with check-in and check-out, two people booking the last room at
+once, changing, cancelling and no-shows, and what receptionists and front office managers
+may do.
 
 ## Architecture
 
